@@ -60,3 +60,4 @@ media/
 
 # Worktrees
 .worktrees/
+credentials.json
