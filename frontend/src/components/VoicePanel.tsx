@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { useVoiceAssistant } from '@livekit/components-react';
+import type { AgentState } from '@livekit/components-react';
 
 interface TranscriptEntry {
   id: string;
@@ -7,7 +9,7 @@ interface TranscriptEntry {
   timestamp: string;
 }
 
-// Mock transcript for development; replaced by LiveKit audio in production
+// Mock transcript for development; replaced by LiveKit audio transcriptions in production
 const MOCK_TRANSCRIPT: TranscriptEntry[] = [
   {
     id: '1',
@@ -17,9 +19,84 @@ const MOCK_TRANSCRIPT: TranscriptEntry[] = [
   },
 ];
 
+function SpeakingIndicator() {
+  return (
+    <span className="flex items-end gap-0.5 h-4" aria-label="Agent speaking">
+      {[0, 1, 2].map((i) => (
+        <span
+          key={i}
+          className="w-1 rounded-sm bg-emerald-400 animate-bounce"
+          style={{
+            height: `${8 + i * 3}px`,
+            animationDelay: `${i * 0.12}s`,
+            animationDuration: '0.6s',
+          }}
+        />
+      ))}
+    </span>
+  );
+}
+
+function AgentStatusBadge({ state }: { state: AgentState }) {
+  if (state === 'disconnected') {
+    return (
+      <span className="flex items-center gap-1 text-xs text-slate-400">
+        <span className="w-1.5 h-1.5 rounded-full bg-slate-500" />
+        Disconnected
+      </span>
+    );
+  }
+
+  if (state === 'connecting' || state === 'pre-connect-buffering') {
+    return (
+      <span className="flex items-center gap-1 text-xs text-slate-400">
+        <span className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-pulse" />
+        Connecting...
+      </span>
+    );
+  }
+
+  if (state === 'speaking') {
+    return (
+      <span className="flex items-center gap-1.5 text-xs text-emerald-400">
+        <SpeakingIndicator />
+        <span>Speaking</span>
+      </span>
+    );
+  }
+
+  if (state === 'listening') {
+    return (
+      <span className="flex items-center gap-1 text-xs text-sky-400">
+        <span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-pulse" />
+        Listening
+      </span>
+    );
+  }
+
+  if (state === 'thinking') {
+    return (
+      <span className="flex items-center gap-1 text-xs text-violet-400">
+        <span className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-pulse" />
+        Thinking...
+      </span>
+    );
+  }
+
+  return (
+    <span className="flex items-center gap-1 text-xs text-emerald-400">
+      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+      Ready
+    </span>
+  );
+}
+
 export function VoicePanel() {
-  const [listening, setListening] = useState(false);
+  const [micActive, setMicActive] = useState(false);
   const [transcript] = useState<TranscriptEntry[]>(MOCK_TRANSCRIPT);
+  const { state: agentState } = useVoiceAssistant();
+
+  const isMicOn = micActive || agentState === 'listening';
 
   return (
     <div className="flex flex-col border-b border-slate-700 bg-slate-900">
@@ -27,23 +104,18 @@ export function VoicePanel() {
       <div className="flex items-center justify-between px-4 py-3">
         <div className="flex items-center gap-2">
           <span className="text-sm font-semibold text-slate-200">Voice Assistant</span>
-          {listening && (
-            <span className="flex items-center gap-1 text-xs text-green-400">
-              <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-              Listening...
-            </span>
-          )}
+          <AgentStatusBadge state={agentState} />
         </div>
 
-        {/* Microphone toggle */}
+        {/* Microphone status indicator + toggle */}
         <button
-          onClick={() => setListening((prev) => !prev)}
+          onClick={() => setMicActive((prev) => !prev)}
           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
-            listening
+            isMicOn
               ? 'bg-red-600 hover:bg-red-700 text-white'
               : 'bg-slate-700 hover:bg-slate-600 text-slate-200'
           }`}
-          aria-label={listening ? 'Stop microphone' : 'Start microphone'}
+          aria-label={isMicOn ? 'Stop microphone' : 'Start microphone'}
         >
           <svg
             className="w-3.5 h-3.5"
@@ -52,7 +124,7 @@ export function VoicePanel() {
             strokeWidth={2}
             viewBox="0 0 24 24"
           >
-            {listening ? (
+            {isMicOn ? (
               <path
                 strokeLinecap="round"
                 strokeLinejoin="round"
@@ -66,7 +138,7 @@ export function VoicePanel() {
               />
             )}
           </svg>
-          {listening ? 'Stop' : 'Mic'}
+          {isMicOn ? 'Stop' : 'Mic'}
         </button>
       </div>
 

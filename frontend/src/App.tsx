@@ -1,44 +1,48 @@
 import './index.css';
+import { LiveKitRoom, RoomAudioRenderer, useRoomContext } from '@livekit/components-react';
 import { VideoPanel } from './components/VideoPanel';
 import { VoicePanel } from './components/VoicePanel';
 import { AlertPanel } from './components/AlertPanel';
 import { Dashboard } from './components/Dashboard';
+import { useSceneGraph } from './hooks/useSceneGraph';
+import { useAlerts } from './hooks/useAlerts';
 
-// Static mock data for AlertPanel during development.
-// Wire real data from useAlerts / useSceneGraph when LiveKit is connected.
-const MOCK_ALERTS = [
-  {
-    id: 'mock-1',
-    type: 'ISOLATION_DETECTED',
-    severity: 'warning' as const,
-    entity_track_id: 'cow-007',
-    description: 'Animal has been isolated from the herd for more than 30 minutes.',
-    timestamp: new Date().toISOString(),
-  },
-  {
-    id: 'mock-2',
-    type: 'FEED_ABSENCE',
-    severity: 'alert' as const,
-    entity_track_id: 'cow-012',
-    description: 'No feed visit recorded in the last 4 hours.',
-    timestamp: new Date(Date.now() - 900_000).toISOString(),
-  },
-];
+const LIVEKIT_URL = import.meta.env.VITE_LIVEKIT_URL ?? 'ws://localhost:7880';
+const LIVEKIT_TOKEN: string | undefined = import.meta.env.VITE_LIVEKIT_TOKEN;
 
-export default function App() {
+function RoomContent() {
+  const room = useRoomContext();
+  const sceneGraph = useSceneGraph(room);
+  const alerts = useAlerts(room);
+
   return (
     <div className="flex h-screen bg-slate-900 text-white overflow-hidden">
       {/* Left: Video feed (70%) */}
       <div className="w-[70%] relative">
-        <VideoPanel overlayData={null} />
+        <VideoPanel room={room} />
       </div>
 
       {/* Right: Control panel (30%) */}
       <div className="w-[30%] flex flex-col border-l border-slate-700 overflow-y-auto">
         <VoicePanel />
-        <AlertPanel alerts={MOCK_ALERTS} />
-        <Dashboard sceneGraph={null} />
+        <AlertPanel alerts={alerts} />
+        <Dashboard sceneGraph={sceneGraph} />
       </div>
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <LiveKitRoom
+      serverUrl={LIVEKIT_URL}
+      token={LIVEKIT_TOKEN}
+      audio={true}
+      video={false}
+      style={{ height: '100dvh' }}
+    >
+      <RoomAudioRenderer />
+      <RoomContent />
+    </LiveKitRoom>
   );
 }
