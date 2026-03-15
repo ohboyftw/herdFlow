@@ -307,7 +307,7 @@ async def entrypoint(ctx: JobContext) -> None:
     # Start all background tasks
     asyncio.create_task(audio_input_bridge())
     asyncio.create_task(audio_output_bridge())
-    asyncio.create_task(perception_loop(ctx, scene_builder, scene_queue, video_source))
+    asyncio.create_task(perception_loop(ctx, scene_builder, scene_queue, video_source, live_queue))
     asyncio.create_task(sampler.run(scene_queue, inject_context))
 
     # Send initial greeting request
@@ -335,11 +335,20 @@ async def perception_loop(
     builder: SceneGraphBuilder,
     scene_queue: asyncio.Queue,  # type: ignore[type-arg]
     video_source: FileVideoSource | None = None,
+    live_queue: LiveRequestQueue | None = None,
 ) -> None:
-    """Run perception pipeline on video frames."""
+    """Run perception pipeline on video frames + send frames to Gemini Live."""
+    import io
+
+    from PIL import Image
+
     frame_id = 0
     prev_sg = None
     frame_iter = video_source.frames() if video_source else None
+
+    # Adaptive video FPS for Gemini: send every Nth frame
+    # Gemini Live processes ~25 tokens/sec for video; 1-2 FPS is optimal
+    video_send_interval = 4  # send every 4th frame (~0.5 FPS at 2s loop)
 
     while True:
         frame_id += 1
@@ -347,6 +356,26 @@ async def perception_loop(
             frame = next(frame_iter)
         else:
             frame = np.random.randint(0, 255, (720, 1280, 3), dtype=np.uint8)
+
+        # Send video frame to Gemini Live (adaptive FPS)
+        if live_queue is not None and frame_id % video_send_interval == 0:
+            try:
+                img = Image.fromarray(frame)
+                buf = io.BytesIO()
+                img.save(buf, format="JPEG", quality=60)
+                live_queue.send_realtime(
+                    genai_types.Blob(
+                        mime_type="image/jpeg",
+                        data=buf.getvalue(),
+                    )
+                )
+                logger.debug(
+                    "[VIDEO] Sent frame %d to Gemini (%d bytes)",
+                    frame_id,
+                    buf.tell(),
+                )
+            except Exception:  # noqa: BLE001
+                logger.debug("Video frame send failed")
 
         sg = await builder.process_frame(frame, frame_id)
         delta = builder.get_delta(prev_sg, sg)
