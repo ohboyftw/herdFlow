@@ -39,11 +39,11 @@ class SceneGraphBuilder:
         # Track
         entities = self.tracker.update(detections, frame_id)
 
-        # Assign zones first (behavior classification depends on zone)
+        # Order matters: zone → behavior (depends on zone) → temporal (depends on both)
         for entity in entities:
             self._assign_zone(entity)
-            self._accumulate_temporal_state(entity)
             self._classify_behavior(entity)
+            self._accumulate_temporal_state(entity)
 
         for entity in entities:
             self._compute_isolation(entity, entities)
