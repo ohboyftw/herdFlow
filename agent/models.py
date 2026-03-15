@@ -264,6 +264,9 @@ class ZoneHistory(BaseModel):
     zone: str
     period_minutes: int
     visits: list[ZoneVisit]
+    current_occupancy: int = 0
+    peak_occupancy: int = 0
+    animals_not_visited: list[str] = []
 
 
 # ── Frontend consumer contract ──
