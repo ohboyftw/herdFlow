@@ -119,12 +119,19 @@ async def entrypoint(ctx: JobContext) -> None:
     scene_json = initial_sg.model_dump_json(indent=2)
     logger.info("Initial scene: %d entities", len(initial_sg.tracked_entities))
 
-    # Create ADK agent with Gemini Live model + tools
+    # Create ADK multi-agent system
     prompt = STATIC_PROMPT.replace("{scene_graph_json}", scene_json)
-    adk_agent = Agent(
-        name="herdflow",
-        model="gemini-2.5-flash-native-audio-latest",
-        static_instruction=prompt,
+
+    # Gemini 3 Flash sub-agent for deep analysis
+    analyst = Agent(
+        name="analyst",
+        model="gemini-3-flash-preview",
+        static_instruction=(
+            "You are a veterinary data analyst. When delegated a question, "
+            "use your tools to query the tracking database and return a "
+            "detailed, factual analysis. Include specific numbers, track IDs, "
+            "time durations, and recommended actions."
+        ),
         tools=[
             search_entity_history,
             get_herd_stats,
@@ -132,6 +139,28 @@ async def entrypoint(ctx: JobContext) -> None:
             get_zone_history,
         ],
         sub_agents=[],
+    )
+
+    # Root agent: Gemini 2.5 Flash Native Audio (voice + tools + delegation)
+    adk_agent = Agent(
+        name="herdflow",
+        model="gemini-2.5-flash-native-audio-latest",
+        static_instruction=(
+            prompt + "\n\n"
+            "TOOL USAGE:\n"
+            "- For quick lookups (single animal status, herd count), use your "
+            "tools directly and respond immediately.\n"
+            "- For complex analysis (full health reports, trend analysis, "
+            "cross-animal comparisons), delegate to the 'analyst' sub-agent "
+            "who has deeper reasoning capabilities.\n"
+        ),
+        tools=[
+            search_entity_history,
+            get_herd_stats,
+            find_by_description,
+            get_zone_history,
+        ],
+        sub_agents=[analyst],
     )
 
     # Set up ADK runner
