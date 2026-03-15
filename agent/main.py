@@ -119,48 +119,48 @@ async def entrypoint(ctx: JobContext) -> None:
     scene_json = initial_sg.model_dump_json(indent=2)
     logger.info("Initial scene: %d entities", len(initial_sg.tracked_entities))
 
-    # Create ADK multi-agent system
+    # Create ADK agent system
     prompt = STATIC_PROMPT.replace("{scene_graph_json}", scene_json)
+    herd_tools = [search_entity_history, get_herd_stats, find_by_description, get_zone_history]
 
-    # Gemini 3 Flash sub-agent for deep analysis
-    analyst = Agent(
-        name="analyst",
-        model="gemini-3-flash-preview",
-        static_instruction=(
-            "You are a veterinary data analyst. When delegated a question, "
-            "use your tools to query the tracking database and return a "
-            "detailed, factual analysis. Include specific numbers, track IDs, "
-            "time durations, and recommended actions."
-        ),
-        tools=[
-            search_entity_history,
-            get_herd_stats,
-            find_by_description,
-            get_zone_history,
-        ],
-        sub_agents=[],
+    # Optional: Gemini 3 Flash sub-agent for deep multi-step analysis (v2)
+    sub_agents: list[Agent] = []
+    tool_instruction = (
+        "TOOL USAGE:\n"
+        "Use your tools directly to answer data questions about animals, "
+        "herd stats, zone history, and finding specific animals.\n"
     )
-
-    # Root agent: Gemini 2.5 Flash Native Audio (voice + tools + delegation)
-    adk_agent = Agent(
-        name="herdflow",
-        model="gemini-2.5-flash-native-audio-preview-12-2025",
-        static_instruction=(
-            prompt + "\n\n"
+    if settings.enable_analyst_subagent:
+        analyst = Agent(
+            name="analyst",
+            model="gemini-3-flash-preview",
+            static_instruction=(
+                "You are a veterinary data analyst. When delegated a question, "
+                "use your tools to query the tracking database and return a "
+                "detailed, factual analysis. Include specific numbers, track IDs, "
+                "time durations, and recommended actions."
+            ),
+            tools=herd_tools,
+            sub_agents=[],
+        )
+        sub_agents = [analyst]
+        tool_instruction = (
             "TOOL USAGE:\n"
             "- For quick lookups (single animal status, herd count), use your "
             "tools directly and respond immediately.\n"
             "- For complex analysis (full health reports, trend analysis, "
             "cross-animal comparisons), delegate to the 'analyst' sub-agent "
             "who has deeper reasoning capabilities.\n"
-        ),
-        tools=[
-            search_entity_history,
-            get_herd_stats,
-            find_by_description,
-            get_zone_history,
-        ],
-        sub_agents=[analyst],
+        )
+        logger.info("Analyst sub-agent enabled (gemini-3-flash-preview)")
+
+    # Root agent: Gemini 2.5 Flash Native Audio (voice + video + tools)
+    adk_agent = Agent(
+        name="herdflow",
+        model="gemini-2.5-flash-native-audio-preview-12-2025",
+        static_instruction=prompt + "\n\n" + tool_instruction,
+        tools=herd_tools,
+        sub_agents=sub_agents,
     )
 
     # Set up ADK runner

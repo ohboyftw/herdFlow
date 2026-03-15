@@ -32,6 +32,7 @@ class Settings(BaseSettings):
 
     # Gemini model selection
     gemini_model: str = "gemini-3-flash-preview"
+    enable_analyst_subagent: bool = False  # v2: Gemini 3 sub-agent for deep analysis
 
     # Zone config (frame-relative percentages)
     zone_config: dict = {
