@@ -1,12 +1,13 @@
 """LiveKit Agent entrypoint for HerdFlow.
 
-Dual-model architecture:
-- Gemini 2.5 Flash Native Audio: voice concierge (handles conversation)
-- Gemini 3 Flash via ADK: strategist (tool calls, data analysis)
+Deep ADK+LiveKit integration: ADK agent manages the Gemini Live session
+with tool support. LiveKit provides the WebRTC audio transport.
 
-The concierge speaks to the farmer. When data questions arise, they are
-relayed to the ADK strategist which calls tools and returns answers.
-The concierge then speaks the answer.
+Audio flow:
+  Farmer mic → LiveKit → PCM frames → ADK LiveRequestQueue → Gemini Live
+  Gemini Live → audio blobs → ADK events → LiveKit audio source → farmer speaker
+
+This gives us voice + tool calls in a SINGLE Gemini session (no relay overhead).
 
 Usage: uv run python -m agent.main dev
 """
@@ -18,31 +19,42 @@ import contextlib
 import logging
 
 import numpy as np
-from google.adk.runners import Runner
+from google.adk.agents import Agent, LiveRequestQueue
+from google.adk.runners import RunConfig, Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types as genai_types
-from livekit.agents import AgentServer, AgentSession, JobContext, JobProcess
-from livekit.plugins import google, silero
+from livekit.agents import AgentServer, JobContext, JobProcess
+from livekit.plugins import silero
+from livekit.rtc import AudioFrame, AudioSource, AudioStream
 
-from agent.adk_agents import create_herdflow_agents
+from agent.adk_agents import (
+    find_by_description,
+    get_herd_stats,
+    get_zone_history,
+    search_entity_history,
+)
 from agent.alerts.rules import AlertRuleEngine
 from agent.config import settings
-from agent.herdflow_agent import HerdFlowAgent
 from agent.models import OverlayBox, OverlayData
 from agent.perception.detector import MockDetector
 from agent.perception.scene_graph import SceneGraphBuilder
 from agent.perception.tracker import Tracker
 from agent.perception.video_source import FileVideoSource
-from agent.reasoning.prompts import build_system_prompt
+from agent.reasoning.prompts import STATIC_PROMPT
 from agent.reasoning.sampler import AdaptiveFrameSampler
 
 logger = logging.getLogger("herdflow")
 
 server = AgentServer()
 
+# Audio config matching Gemini Live API expectations
+SAMPLE_RATE = 16000
+NUM_CHANNELS = 1
+FRAME_DURATION_MS = 100  # 100ms chunks
+
 
 def setup(proc: JobProcess) -> None:
-    """Pre-load VAD and detector models (runs once per worker process)."""
+    """Pre-load models (runs once per worker process)."""
     proc.userdata["vad"] = silero.VAD.load()
 
     if settings.use_real_detector:
@@ -65,7 +77,7 @@ def setup(proc: JobProcess) -> None:
         logger.warning("Demo video not found at %s", settings.demo_video_path)
 
     logger.info(
-        "HerdFlow process started (detector=%s, video=%s)",
+        "HerdFlow started (detector=%s, video=%s)",
         type(proc.userdata["detector"]).__name__,
         settings.demo_video_path,
     )
@@ -76,10 +88,9 @@ server.setup_fnc = setup
 
 @server.rtc_session()
 async def entrypoint(ctx: JobContext) -> None:
-    """Main RTC session: dual-model voice + data pipeline."""
+    """Main session: ADK agent as LiveKit participant with Gemini Live + tools."""
     await ctx.connect()
 
-    vad = ctx.proc.userdata["vad"]
     detector = ctx.proc.userdata["detector"]
     video_source = ctx.proc.userdata.get("video_source")
 
@@ -98,7 +109,7 @@ async def entrypoint(ctx: JobContext) -> None:
     )
     scene_queue: asyncio.Queue = asyncio.Queue(maxsize=10)
 
-    # Run one frame to get initial scene context
+    # Get initial scene context
     frame_iter = video_source.frames() if video_source else None
     if frame_iter is not None:
         initial_frame = next(frame_iter)
@@ -108,121 +119,171 @@ async def entrypoint(ctx: JobContext) -> None:
     scene_json = initial_sg.model_dump_json(indent=2)
     logger.info("Initial scene: %d entities", len(initial_sg.tracked_entities))
 
-    # Create ADK strategist for tool calls
-    adk_agents = create_herdflow_agents(scene_json)
-    adk_session_service = InMemorySessionService()
-    adk_session = await adk_session_service.create_session(
-        app_name="herdflow", user_id="farmer"
+    # Create ADK agent with Gemini Live model + tools
+    prompt = STATIC_PROMPT.replace("{scene_graph_json}", scene_json)
+    adk_agent = Agent(
+        name="herdflow",
+        model="gemini-2.5-flash-native-audio-latest",
+        static_instruction=prompt,
+        tools=[
+            search_entity_history,
+            get_herd_stats,
+            find_by_description,
+            get_zone_history,
+        ],
+        sub_agents=[],
     )
+
+    # Set up ADK runner
+    adk_session_service = InMemorySessionService()
+    adk_session = await adk_session_service.create_session(app_name="herdflow", user_id="farmer")
     adk_runner = Runner(
-        agent=adk_agents["strategist"],
+        agent=adk_agent,
         app_name="herdflow",
         session_service=adk_session_service,
     )
 
-    # Create LiveKit voice session with Gemini 2.5 Native Audio
-    agent = HerdFlowAgent()
-    agent._instructions = build_system_prompt(scene_json)
+    # LiveKit audio source for sending agent speech to the room
+    audio_source = AudioSource(SAMPLE_RATE, NUM_CHANNELS)
+    track = await ctx.room.local_participant.publish_audio(audio_source)
+    logger.info("Published audio track: %s", track.sid)
 
-    session = AgentSession(
-        llm=google.beta.realtime.RealtimeModel(
-            model="gemini-2.5-flash-native-audio-latest",
-            thinking_config={"thinking_budget": 128},
+    # ADK live request queue — the audio bridge
+    live_queue = LiveRequestQueue()
+
+    # Run config for Gemini Live with audio
+    run_config = RunConfig(
+        response_modalities=["AUDIO"],
+        speech_config=genai_types.SpeechConfig(
+            voice_config=genai_types.VoiceConfig(
+                prebuilt_voice_config=genai_types.PrebuiltVoiceConfig(voice_name="Puck")
+            )
         ),
-        vad=vad,
+        output_audio_transcription=genai_types.AudioTranscriptionConfig(),
+        input_audio_transcription=genai_types.AudioTranscriptionConfig(),
     )
 
     # Wait for participant
     participant = await ctx.wait_for_participant()
     logger.info("Participant joined: %s", participant.identity)
 
-    await session.start(room=ctx.room, agent=agent)
-
-    # Context injection callback
-    async def inject_context(scene_json_str: str) -> None:
-        agent._instructions = build_system_prompt(scene_json_str)
-        # Also update ADK monitor's scene context
-        adk_agents["monitor"]._instruction = (
-            adk_agents["monitor"]._instruction.split("Current scene:")[0]
-            + f"Current scene:\n```json\n{scene_json_str}\n```"
-        )
-
-    # Strategist relay: relay data questions to ADK strategist
-    async def relay_to_strategist(question: str) -> str:
-        """Send a question to the ADK Strategist and return the answer."""
-        logger.info("[RELAY] Farmer asked: %s", question[:100])
-        msg = genai_types.Content(
-            role="user", parts=[genai_types.Part(text=question)]
-        )
-        answer_parts: list[str] = []
-        for event in adk_runner.run(
-            user_id="farmer", session_id=adk_session.id, new_message=msg
-        ):
-            if (
-                hasattr(event, "content")
-                and event.content
-                and event.content.parts
-            ):
-                for part in event.content.parts:
-                    if hasattr(part, "text") and part.text:
-                        answer_parts.append(part.text)
-        answer = " ".join(answer_parts) if answer_parts else "I couldn't find that data."
-        logger.info("[RELAY] Strategist answered: %s", answer[:200])
-        return answer
-
-    # Monitor loop: periodically check for alerts via ADK monitor
-    async def monitor_loop() -> None:
-        """Run ADK monitor periodically to check for proactive alerts."""
-        monitor_session = await adk_session_service.create_session(
-            app_name="herdflow-monitor", user_id="system"
-        )
-        monitor_runner = Runner(
-            agent=adk_agents["monitor"],
-            app_name="herdflow-monitor",
-            session_service=adk_session_service,
-        )
-        while True:
-            await asyncio.sleep(30)  # check every 30 seconds
-            try:
-                msg = genai_types.Content(
-                    role="user",
-                    parts=[genai_types.Part(text="Analyze the current scene for concerns.")],
-                )
-                for event in monitor_runner.run(
-                    user_id="system", session_id=monitor_session.id, new_message=msg
-                ):
-                    if (
-                        hasattr(event, "content")
-                        and event.content
-                        and event.content.parts
-                    ):
-                        for part in event.content.parts:
-                            if (
-                                hasattr(part, "text")
-                                and part.text
-                                and "ALL_CLEAR" not in part.text
-                            ):
-                                logger.info("[MONITOR] Alert: %s", part.text[:200])
-                                await session.say(
-                                    f"Attention farmer. {part.text}",
-                                    allow_interruptions=True,
-                                )
-            except Exception:  # noqa: BLE001
-                logger.debug("Monitor check failed, will retry")
-
-    # Start background tasks
-    asyncio.create_task(
-        perception_loop(ctx, scene_builder, scene_queue, video_source, session)
+    # Start the ADK live session (async generator)
+    adk_events = adk_runner.run_live(
+        user_id="farmer",
+        session_id=adk_session.id,
+        live_request_queue=live_queue,
+        run_config=run_config,
     )
+
+    # Task 1: Pipe LiveKit incoming audio → ADK
+    async def audio_input_bridge() -> None:
+        """Read audio from LiveKit participant and feed to ADK."""
+        logger.info("[BRIDGE] Waiting for participant audio track...")
+        # Wait for the participant's audio track
+        for pub in participant.track_publications.values():
+            if pub.track and pub.track.kind.name == "KIND_AUDIO":
+                audio_stream = AudioStream(track=pub.track)
+                logger.info("[BRIDGE] Subscribed to participant audio")
+                async for frame_event in audio_stream:
+                    frame: AudioFrame = frame_event.frame
+                    pcm_data = bytes(frame.data)
+                    blob = genai_types.Blob(
+                        mime_type="audio/pcm;rate=16000",
+                        data=pcm_data,
+                    )
+                    live_queue.send_realtime(blob)
+                return
+
+        # If no track yet, listen for new tracks
+        import livekit.rtc as rtc
+
+        @ctx.room.on("track_subscribed")
+        def on_track(
+            track: rtc.Track,
+            publication: rtc.RemoteTrackPublication,
+            remote_participant: rtc.RemoteParticipant,
+        ) -> None:
+            if track.kind == rtc.TrackKind.KIND_AUDIO:
+                asyncio.create_task(_stream_audio(track))
+
+        async def _stream_audio(audio_track: rtc.Track) -> None:
+            audio_stream = AudioStream(track=audio_track)
+            logger.info("[BRIDGE] Streaming participant audio to ADK")
+            async for frame_event in audio_stream:
+                frame: AudioFrame = frame_event.frame
+                pcm_data = bytes(frame.data)
+                blob = genai_types.Blob(
+                    mime_type="audio/pcm;rate=16000",
+                    data=pcm_data,
+                )
+                live_queue.send_realtime(blob)
+
+    # Task 2: Pipe ADK output audio → LiveKit
+    async def audio_output_bridge() -> None:
+        """Read ADK events and send audio responses to LiveKit."""
+        logger.info("[BRIDGE] Listening for ADK audio output...")
+        async for event in adk_events:
+            # Audio output comes as inline_data blobs in content parts
+            if event.content and event.content.parts:
+                for part in event.content.parts:
+                    if part.inline_data and part.inline_data.mime_type.startswith("audio/"):
+                        pcm_bytes = part.inline_data.data
+                        frame = AudioFrame(
+                            data=pcm_bytes,
+                            sample_rate=SAMPLE_RATE,
+                            num_channels=NUM_CHANNELS,
+                            samples_per_channel=len(pcm_bytes) // 2,
+                        )
+                        await audio_source.capture_frame(frame)
+                    elif part.text:
+                        logger.info("[ADK] Agent said: %s", part.text[:150])
+
+            # Log transcriptions
+            if event.input_transcription and event.input_transcription.text:
+                logger.info("[ADK] Farmer: %s", event.input_transcription.text)
+            if event.output_transcription and event.output_transcription.text:
+                logger.info("[ADK] Agent: %s", event.output_transcription.text)
+
+            # Log tool calls
+            if event.content and event.content.parts:
+                for part in event.content.parts:
+                    if part.function_call:
+                        logger.info("[ADK] Tool call: %s", part.function_call.name)
+
+    # Context injection for scene updates
+    async def inject_context(scene_json_str: str) -> None:
+        new_prompt = STATIC_PROMPT.replace("{scene_graph_json}", scene_json_str)
+        live_queue.send_content(
+            genai_types.Content(
+                role="user",
+                parts=[genai_types.Part(text=f"[SCENE UPDATE]\n{new_prompt}")],
+            )
+        )
+
+    # Start all background tasks
+    asyncio.create_task(audio_input_bridge())
+    asyncio.create_task(audio_output_bridge())
+    asyncio.create_task(perception_loop(ctx, scene_builder, scene_queue, video_source))
     asyncio.create_task(sampler.run(scene_queue, inject_context))
-    asyncio.create_task(monitor_loop())
 
-    # Store relay function for use by the agent's tool handling
-    ctx.proc.userdata["relay_to_strategist"] = relay_to_strategist
+    # Send initial greeting request
+    live_queue.send_content(
+        genai_types.Content(
+            role="user",
+            parts=[
+                genai_types.Part(
+                    text="Greet the farmer. Introduce yourself and briefly "
+                    "describe what you see in the current scene."
+                )
+            ],
+        )
+    )
 
-    # Greet the farmer
-    await session.generate_reply()
-    logger.info("HerdFlow dual-model session started (voice=2.5-flash, strategy=gemini-3)")
+    logger.info("HerdFlow ADK Live session started (model=gemini-2.5-flash-native-audio)")
+
+    # Keep the session alive
+    while True:
+        await asyncio.sleep(1)
 
 
 async def perception_loop(
@@ -230,7 +291,6 @@ async def perception_loop(
     builder: SceneGraphBuilder,
     scene_queue: asyncio.Queue,  # type: ignore[type-arg]
     video_source: FileVideoSource | None = None,
-    session: AgentSession | None = None,
 ) -> None:
     """Run perception pipeline on video frames."""
     frame_id = 0
@@ -257,8 +317,10 @@ async def perception_loop(
                 frame_id=frame_id,
                 boxes=[
                     OverlayBox(
-                        track_id=e.track_id, bbox=e.bbox,
-                        behavior=e.behavior, flags=e.flags,
+                        track_id=e.track_id,
+                        bbox=e.bbox,
+                        behavior=e.behavior,
+                        flags=e.flags,
                     )
                     for e in sg.tracked_entities
                 ],
@@ -270,18 +332,8 @@ async def perception_loop(
                 await ctx.room.local_participant.publish_data(
                     alert.model_dump_json().encode(), topic="alerts"
                 )
-            logger.debug(
-                "[B8] published: scene_graph + overlay(%d) + %d alerts",
-                len(sg.tracked_entities), len(sg.active_alerts),
-            )
         except Exception:  # noqa: BLE001
             logger.debug("Data channel publish failed")
-
-        # Proactive alerts via voice
-        if session is not None:
-            for alert in sg.active_alerts:
-                if alert.severity.value in ("alert", "critical"):
-                    await session.say(alert.description, allow_interruptions=True)
 
         with contextlib.suppress(asyncio.QueueFull):
             scene_queue.put_nowait((sg, delta))
