@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 
 from agent.config import Settings
 from agent.models import Alert, Severity, TrackedEntity
+
+logger = logging.getLogger(__name__)
 
 
 class ProlongedLyingRule:
@@ -97,6 +100,7 @@ class AlertRuleEngine:
         # Auto-resolve: mark active alerts whose condition is no longer met
         resolved_keys = set(self._active.keys()) - set(fired.keys())
         for key in resolved_keys:
+            logger.info("[B5] alert resolved: %s", key)
             self._active[key].resolved = True
             self._active[key].resolved_at = datetime.now(UTC)
             del self._active[key]
@@ -107,5 +111,13 @@ class AlertRuleEngine:
             if key not in self._active:
                 self._active[key] = alert
                 new_alerts.append(alert)
+                logger.info("[B4->B5] new alert: %s (%s)", alert.key, alert.severity.value)
 
+        logger.debug(
+            "[B4->B5] evaluate: %d entities, %d fired, %d new, %d active",
+            len(entities),
+            len(fired),
+            len(new_alerts),
+            len(self._active),
+        )
         return new_alerts

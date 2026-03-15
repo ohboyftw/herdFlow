@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import math
 from datetime import UTC, datetime
 
@@ -15,6 +16,8 @@ from agent.models import (
     TrackedEntityModel,
     ZoneOccupancy,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class SceneGraphBuilder:
@@ -50,9 +53,19 @@ class SceneGraphBuilder:
 
         # Alert evaluation
         alerts: list[Alert] = self.alert_engine.evaluate(entities)
+        if alerts:
+            logger.info("[B4->B5] alerts fired: %s", [a.key for a in alerts])
 
         # Build SceneGraph
         sg = self._build_graph(entities, alerts, frame_id)
+        behaviors = {e.behavior for e in entities}
+        logger.debug(
+            "[B3->B6] frame=%d entities=%d behaviors=%s alerts=%d",
+            frame_id,
+            len(entities),
+            behaviors,
+            len(alerts),
+        )
         self._prev_entities = {e.track_id: e for e in entities}
         return sg
 

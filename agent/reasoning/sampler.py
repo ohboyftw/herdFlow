@@ -61,6 +61,7 @@ class AdaptiveFrameSampler:
             return elapsed_ms >= self.min_interval_ms and elapsed_ms >= 1000 / self.max_fps
 
         # Priority 3: Quiet scene — no injection needed
+        logger.debug("[B6->B7] skip: not significant, user not speaking")
         return False
 
     async def run(

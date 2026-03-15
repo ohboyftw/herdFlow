@@ -1,7 +1,9 @@
 """LiveKit Agent entrypoint for HerdFlow.
 
-Full pipeline: video frames → RF-DETR → ByteTrack → SceneGraph → Gemini context injection.
+Full pipeline: video frames -> RF-DETR -> ByteTrack -> SceneGraph -> Gemini context injection.
 Data channels: scene_graph, alerts, overlay sent to frontend.
+
+Usage: uv run python -m agent.main
 """
 
 from __future__ import annotations
@@ -11,7 +13,7 @@ import contextlib
 import logging
 
 import numpy as np
-from livekit.agents import AgentServer, AgentSession
+from livekit.agents import AgentServer, AgentSession, JobContext, JobProcess
 from livekit.plugins import google, silero
 
 from agent.alerts.rules import AlertRuleEngine
@@ -29,9 +31,8 @@ logger = logging.getLogger("herdflow")
 server = AgentServer()
 
 
-@server.on_process_started
-async def on_process_started(proc: AgentServer.Process) -> None:
-    """Pre-load VAD and detector models."""
+def setup(proc: JobProcess) -> None:
+    """Pre-load VAD and detector models (runs once per worker process)."""
     proc.userdata["vad"] = silero.VAD.load()
 
     if settings.use_real_detector:
@@ -44,11 +45,15 @@ async def on_process_started(proc: AgentServer.Process) -> None:
     else:
         proc.userdata["detector"] = MockDetector()
 
-    # Set up file-based video source for demo
-    proc.userdata["video_source"] = FileVideoSource(
-        path=settings.demo_video_path,
-        target_fps=settings.max_fps,
-    )
+    # File-based video source for demo
+    try:
+        proc.userdata["video_source"] = FileVideoSource(
+            path=settings.demo_video_path,
+            target_fps=settings.max_fps,
+        )
+    except FileNotFoundError:
+        proc.userdata["video_source"] = None
+        logger.warning("Demo video not found at %s, using random frames", settings.demo_video_path)
 
     logger.info(
         "HerdFlow process started (detector=%s, video=%s)",
@@ -57,10 +62,17 @@ async def on_process_started(proc: AgentServer.Process) -> None:
     )
 
 
+server.setup_fnc = setup
+
+
 @server.rtc_session()
-async def entrypoint(ctx: AgentServer.SessionContext) -> None:
+async def entrypoint(ctx: JobContext) -> None:
+    """Main RTC session: wire perception pipeline -> Gemini Live session."""
+    await ctx.connect()
+
     vad = ctx.proc.userdata["vad"]
     detector = ctx.proc.userdata["detector"]
+    video_source = ctx.proc.userdata.get("video_source")
 
     # Build perception pipeline
     tracker = Tracker()
@@ -77,7 +89,7 @@ async def entrypoint(ctx: AgentServer.SessionContext) -> None:
     )
     scene_queue: asyncio.Queue = asyncio.Queue(maxsize=10)
 
-    # Create Gemini session
+    # Create Gemini session with HerdFlow agent
     session = AgentSession(
         llm=google.beta.realtime.RealtimeModel(
             model="gemini-2.5-flash-native-audio-preview",
@@ -90,15 +102,18 @@ async def entrypoint(ctx: AgentServer.SessionContext) -> None:
 
     agent = HerdFlowAgent()
 
+    # Wait for a participant to join
+    participant = await ctx.wait_for_participant()
+    logger.info("Participant joined: %s", participant.identity)
+
     await session.start(
         room=ctx.room,
         agent=agent,
     )
 
     # Start background tasks
-    video_source = ctx.proc.userdata["video_source"]
     asyncio.create_task(perception_loop(ctx, scene_builder, scene_queue, video_source))
-    asyncio.create_task(sampler.run(scene_queue, session.update_chat_ctx))
+    asyncio.create_task(sampler.run(scene_queue, session.generate_reply))
 
     # Greet the farmer
     await session.generate_reply()
@@ -106,16 +121,15 @@ async def entrypoint(ctx: AgentServer.SessionContext) -> None:
 
 
 async def perception_loop(
-    ctx: AgentServer.SessionContext,
+    ctx: JobContext,
     builder: SceneGraphBuilder,
     scene_queue: asyncio.Queue,  # type: ignore[type-arg]
     video_source: FileVideoSource | None = None,
 ) -> None:
-    """Run perception pipeline on video frames (file or LiveKit)."""
+    """Run perception pipeline on video frames (file or random)."""
     frame_id = 0
     prev_sg = None
 
-    # Use file video source if available, otherwise fall back to random noise
     frame_iter = video_source.frames() if video_source else None
 
     while True:
@@ -131,8 +145,7 @@ async def perception_loop(
 
         # Publish to LiveKit data channels (best-effort)
         try:
-            room = ctx.room
-            await room.local_participant.publish_data(
+            await ctx.room.local_participant.publish_data(
                 sg.model_dump_json().encode(), topic="scene_graph"
             )
             overlay = OverlayData(
@@ -147,18 +160,29 @@ async def perception_loop(
                     for e in sg.tracked_entities
                 ],
             )
-            await room.local_participant.publish_data(
+            await ctx.room.local_participant.publish_data(
                 overlay.model_dump_json().encode(), topic="overlay"
             )
             for alert in sg.active_alerts:
-                await room.local_participant.publish_data(
+                await ctx.room.local_participant.publish_data(
                     alert.model_dump_json().encode(), topic="alerts"
                 )
+            logger.debug(
+                "[B8] published: scene_graph + overlay(%d boxes) + %d alerts",
+                len(sg.tracked_entities),
+                len(sg.active_alerts),
+            )
         except Exception:  # noqa: BLE001
-            logger.debug("No participants yet, skipping data publish")
+            logger.debug("Data channel publish failed (no participants?)")
 
         # Feed to sampler queue (non-blocking, drop if full)
         with contextlib.suppress(asyncio.QueueFull):
             scene_queue.put_nowait((sg, delta))
 
         await asyncio.sleep(0.5)  # ~2 FPS
+
+
+if __name__ == "__main__":
+    from livekit.agents.cli import run_app
+
+    run_app(server)

@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import random
 from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 
 from agent.models import Detection
+
+logger = logging.getLogger(__name__)
 
 # COCO class ID for cow
 _COW_CLASS_ID = 20
@@ -61,6 +64,7 @@ class MockDetector:
                     bbox=(bx1, by1, bx2, by2),
                 )
             )
+        logger.debug("[B1->B2] detect: %d detections (mock)", len(detections))
         return detections
 
     async def detect(self, frame: np.ndarray) -> list[Detection]:

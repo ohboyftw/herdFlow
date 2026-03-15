@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 
 import numpy as np
@@ -9,6 +10,8 @@ import supervision as sv
 
 from agent.config import settings
 from agent.models import Detection, TrackedEntity, TrackState
+
+logger = logging.getLogger(__name__)
 
 
 class Tracker:
@@ -103,4 +106,8 @@ class Tracker:
             self._entity_state[track_id] = entity
             entities.append(entity)
 
+        new_ids = [e.track_id for e in entities if e.age_frames == 1]
+        if new_ids:
+            logger.info("[B2->B3] tracker: new tracks %s", new_ids)
+        logger.debug("[B2->B3] tracker: %d in -> %d tracked", len(detections), len(entities))
         return entities
