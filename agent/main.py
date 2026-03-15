@@ -144,7 +144,7 @@ async def entrypoint(ctx: JobContext) -> None:
     # Root agent: Gemini 2.5 Flash Native Audio (voice + tools + delegation)
     adk_agent = Agent(
         name="herdflow",
-        model="gemini-2.5-flash-native-audio-latest",
+        model="gemini-2.5-flash-native-audio-preview-12-2025",
         static_instruction=(
             prompt + "\n\n"
             "TOOL USAGE:\n"
@@ -180,7 +180,7 @@ async def entrypoint(ctx: JobContext) -> None:
     # ADK live request queue — the audio bridge
     live_queue = LiveRequestQueue()
 
-    # Run config for Gemini Live with audio
+    # Run config for Gemini Live with audio (per best practices)
     run_config = RunConfig(
         response_modalities=["AUDIO"],
         speech_config=genai_types.SpeechConfig(
@@ -190,6 +190,21 @@ async def entrypoint(ctx: JobContext) -> None:
         ),
         output_audio_transcription=genai_types.AudioTranscriptionConfig(),
         input_audio_transcription=genai_types.AudioTranscriptionConfig(),
+        # Context window compression — audio tokens accumulate at ~25/sec
+        # Without this, sessions limited to ~15 min audio-only
+        context_window_compression=genai_types.ContextWindowCompressionConfig(
+            sliding_window=genai_types.SlidingWindow(
+                target_token_count=100_000,
+            ),
+        ),
+        # Session resumption for reconnection without losing context
+        session_resumption=genai_types.SessionResumptionConfig(handle=None),
+        # Proactivity — agent can initiate speech on alerts
+        proactivity=genai_types.ProactivityConfig(
+            proactive_audio=True,
+        ),
+        # Affective dialog — natural emotional tone
+        enable_affective_dialog=True,
     )
 
     # Wait for participant
