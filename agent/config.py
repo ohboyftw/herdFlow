@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     entity_id_prefix: str = "COW-"
     demo_video_path: str = "demo_videos/cattle_pen_720p.mp4"
     use_real_detector: bool = False
+    google_credentials_file: str = "credentials.json"
+
+    # Gemini model selection
+    gemini_model: str = "gemini-3-flash-preview"
 
     # Zone config (frame-relative percentages)
     zone_config: dict = {
