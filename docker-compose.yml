@@ -1,0 +1,32 @@
+services:
+  livekit:
+    image: livekit/livekit-server:latest
+    command: --dev
+    ports:
+      - "7880:7880"
+      - "7881:7881"
+    restart: unless-stopped
+
+  agent:
+    build: .
+    environment:
+      - LIVEKIT_URL=ws://livekit:7880
+      - LIVEKIT_API_KEY=devkey
+      - LIVEKIT_API_SECRET=secret
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+    depends_on:
+      - livekit
+    restart: unless-stopped
+
+  frontend:
+    image: node:20-slim
+    working_dir: /app
+    volumes:
+      - ./frontend:/app
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_LIVEKIT_URL=ws://localhost:7880
+    depends_on:
+      - livekit
