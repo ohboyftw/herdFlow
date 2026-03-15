@@ -58,7 +58,15 @@ async def trace() -> bool:
 
     # 2. Build pipeline
     print("\n[2] Pipeline Setup")
-    detector = MockDetector()
+    if settings.use_real_detector:
+        from agent.perception.detector import RFDETRDetector
+
+        detector = RFDETRDetector(
+            model_name=settings.rfdetr_model,
+            threshold=settings.rfdetr_detection_threshold,
+        )
+    else:
+        detector = MockDetector()
     tracker = Tracker()
     alert_engine = AlertRuleEngine(settings)
     builder = SceneGraphBuilder(

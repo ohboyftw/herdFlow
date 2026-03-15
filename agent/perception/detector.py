@@ -79,10 +79,10 @@ class RFDETRDetector:
     to the HerdFlow Detection dataclass.
     """
 
-    def __init__(self, model_name: str = "rf-detr-small", threshold: float = 0.3) -> None:
+    def __init__(self, model_name: str = "rf-detr-base", threshold: float = 0.3) -> None:
         from rfdetr import RFDETRBase  # type: ignore[import-untyped]
 
-        self.model = RFDETRBase(model_id=model_name)
+        self.model = RFDETRBase()
         self.threshold = threshold
         self._executor: ThreadPoolExecutor = ThreadPoolExecutor(max_workers=1)
 
