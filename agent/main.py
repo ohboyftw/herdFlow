@@ -92,15 +92,27 @@ async def entrypoint(ctx: JobContext) -> None:
     # Create Gemini session with HerdFlow agent
     session = AgentSession(
         llm=google.beta.realtime.RealtimeModel(
-            model="gemini-2.5-flash-native-audio-preview",
+            model="gemini-2.5-flash-native-audio-latest",
             proactivity=True,
             enable_affective_dialog=True,
-            thinking_config={"thinking_budget": 1024},
+            thinking_config={"thinking_budget": 256},
         ),
         vad=vad,
     )
 
     agent = HerdFlowAgent()
+
+    # Run one frame to get initial scene context before greeting
+    from agent.reasoning.prompts import build_system_prompt  # noqa: PLC0415
+
+    frame_iter = video_source.frames() if video_source else None
+    if frame_iter is not None:
+        initial_frame = next(frame_iter)
+    else:
+        initial_frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+    initial_sg = await scene_builder.process_frame(initial_frame, frame_id=0)
+    agent._instructions = build_system_prompt(initial_sg.model_dump_json(indent=2))
+    logger.info("Initial scene context injected (%d entities)", len(initial_sg.tracked_entities))
 
     # Wait for a participant to join
     participant = await ctx.wait_for_participant()
@@ -111,9 +123,14 @@ async def entrypoint(ctx: JobContext) -> None:
         agent=agent,
     )
 
+    # Context injection callback for adaptive sampler
+    async def inject_context(scene_json: str) -> None:
+        agent._instructions = build_system_prompt(scene_json)
+        await session.update_agent(agent)
+
     # Start background tasks
     asyncio.create_task(perception_loop(ctx, scene_builder, scene_queue, video_source))
-    asyncio.create_task(sampler.run(scene_queue, session.generate_reply))
+    asyncio.create_task(sampler.run(scene_queue, inject_context))
 
     # Greet the farmer
     await session.generate_reply()
@@ -179,7 +196,7 @@ async def perception_loop(
         with contextlib.suppress(asyncio.QueueFull):
             scene_queue.put_nowait((sg, delta))
 
-        await asyncio.sleep(0.5)  # ~2 FPS
+        await asyncio.sleep(2.0)  # ~0.5 FPS for mock mode, saves event loop
 
 
 if __name__ == "__main__":

@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>HerdFlow — LiveKit Test</title>
+  <script src="https://cdn.jsdelivr.net/npm/livekit-client@2.17.3/dist/livekit-client.umd.js"></script>
+  <style>
+    body { background: #0f172a; color: #e2e8f0; font-family: system-ui; padding: 20px; }
+    h1 { font-size: 1.5rem; }
+    #status { color: #38bdf8; margin: 10px 0; }
+    #log { background: #1e293b; padding: 15px; border-radius: 8px; font-family: monospace; font-size: 13px; max-height: 500px; overflow-y: auto; white-space: pre-wrap; }
+    button { background: #2563eb; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-size: 14px; margin: 5px; }
+    button:hover { background: #1d4ed8; }
+    button:disabled { background: #475569; cursor: not-allowed; }
+    #data-panel { background: #1e293b; padding: 15px; border-radius: 8px; margin-top: 15px; max-height: 300px; overflow-y: auto; font-family: monospace; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <h1>HerdFlow LiveKit Test</h1>
+  <div>
+    <button id="connectBtn" onclick="connect()">Connect & Join Room</button>
+    <button id="disconnectBtn" onclick="disconnect()" disabled>Disconnect</button>
+  </div>
+  <div id="status">Ready</div>
+  <h3>Agent Audio</h3>
+  <audio id="agentAudio" autoplay></audio>
+  <h3>Data Channels</h3>
+  <div id="data-panel">Waiting for data...</div>
+  <h3>Log</h3>
+  <div id="log"></div>
+
+  <script>
+    const WS_URL = 'wss://herdflow-wfjy59n7.livekit.cloud';
+    const TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ2aWRlbyI6eyJyb29tQ3JlYXRlIjp0cnVlLCJyb29tSm9pbiI6dHJ1ZSwicm9vbSI6ImhmLTE3NzM2MDM5ODEiLCJjYW5QdWJsaXNoIjp0cnVlLCJjYW5TdWJzY3JpYmUiOnRydWUsImNhblB1Ymxpc2hEYXRhIjp0cnVlfSwic3ViIjoiZmFybWVyIiwiaXNzIjoiQVBJb2QyY0F2TkJqU0E0IiwibmJmIjoxNzczNjAzOTgxLCJleHAiOjE3NzM2MjU1ODF9.q3QwEHlU1wZey1yzaBKKwMjjP0EPaE1dTCaqDZ_Z3Lw';
+
+    let room = null;
+
+    function log(msg) {
+      const el = document.getElementById('log');
+      const time = new Date().toLocaleTimeString();
+      el.textContent = `[${time}] ${msg}\n` + el.textContent;
+    }
+
+    function setStatus(msg) {
+      document.getElementById('status').textContent = msg;
+    }
+
+    async function connect() {
+      try {
+        document.getElementById('connectBtn').disabled = true;
+        setStatus('Connecting...');
+        log('Creating LiveKit room...');
+
+        room = new LivekitClient.Room({
+          adaptiveStream: true,
+          dynacast: true,
+        });
+
+        room.on(LivekitClient.RoomEvent.ParticipantConnected, (p) => {
+          log(`Participant joined: ${p.identity}`);
+        });
+
+        room.on(LivekitClient.RoomEvent.TrackSubscribed, (track, pub, participant) => {
+          log(`Track subscribed: ${track.kind} from ${participant.identity}`);
+          if (track.kind === 'audio') {
+            track.attach(document.getElementById('agentAudio'));
+            log('Agent audio attached!');
+          }
+        });
+
+        room.on(LivekitClient.RoomEvent.DataReceived, (payload, participant, kind, topic) => {
+          const text = new TextDecoder().decode(payload);
+          try {
+            const data = JSON.parse(text);
+            if (topic === 'scene_graph') {
+              const hs = data.herd_summary;
+              document.getElementById('data-panel').textContent =
+                `[scene_graph] Entities: ${hs.total_visible} | ` +
+                `Standing: ${hs.standing} Lying: ${hs.lying} Walking: ${hs.walking} ` +
+                `Feeding: ${hs.feeding} Drinking: ${hs.drinking} | ` +
+                `Alerts: ${data.active_alerts.length}\n` +
+                document.getElementById('data-panel').textContent;
+            } else if (topic === 'alerts') {
+              document.getElementById('data-panel').textContent =
+                `[alert] ${data.type} — ${data.entity_track_id}: ${data.description}\n` +
+                document.getElementById('data-panel').textContent;
+            } else if (topic === 'overlay') {
+              log(`Overlay: ${data.boxes.length} boxes, frame ${data.frame_id}`);
+            }
+          } catch(e) {
+            log(`Data (${topic}): ${text.substring(0, 100)}...`);
+          }
+        });
+
+        room.on(LivekitClient.RoomEvent.Disconnected, () => {
+          log('Disconnected from room');
+          setStatus('Disconnected');
+          document.getElementById('connectBtn').disabled = false;
+          document.getElementById('disconnectBtn').disabled = true;
+        });
+
+        await room.connect(WS_URL, TOKEN);
+        log(`Connected to room: ${room.name}`);
+        setStatus(`Connected to ${room.name} as farmer`);
+
+        // Publish microphone
+        await room.localParticipant.setMicrophoneEnabled(true);
+        log('Microphone published');
+
+        document.getElementById('disconnectBtn').disabled = false;
+
+      } catch (e) {
+        log(`ERROR: ${e.message}`);
+        setStatus(`Error: ${e.message}`);
+        document.getElementById('connectBtn').disabled = false;
+      }
+    }
+
+    function disconnect() {
+      if (room) {
+        room.disconnect();
+        room = null;
+      }
+    }
+  </script>
+</body>
+</html>

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from livekit.agents.llm import function_tool
+
 from agent.models import (
     BehaviorRecord,
     DescriptionMatch,
@@ -132,21 +134,25 @@ class MockTrackingHistory:
 mock_history = MockTrackingHistory()
 
 
+@function_tool
 async def search_entity_history(track_id: str, minutes: int = 60) -> dict:
     """Query behavior history for a specific animal."""
     return (await mock_history.search_entity_history(track_id, minutes)).model_dump()
 
 
+@function_tool
 async def get_herd_stats(minutes: int = 60) -> dict:
     """Get aggregate herd statistics over a time window."""
     return (await mock_history.get_herd_stats(minutes)).model_dump()
 
 
+@function_tool
 async def find_by_description(description: str) -> dict:
     """Find animals matching a natural language description."""
     return (await mock_history.find_by_description(description)).model_dump()
 
 
+@function_tool
 async def get_zone_history(zone: str, minutes: int = 120) -> dict:
     """Get zone occupancy history."""
     return (await mock_history.get_zone_history(zone, minutes)).model_dump()
