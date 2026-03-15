@@ -18,33 +18,42 @@ from agent.alerts.rules import AlertRuleEngine
 from agent.config import settings
 from agent.herdflow_agent import HerdFlowAgent
 from agent.models import OverlayBox, OverlayData
-from agent.perception.detector import MockDetector, RFDETRDetector
+from agent.perception.detector import MockDetector
 from agent.perception.scene_graph import SceneGraphBuilder
 from agent.perception.tracker import Tracker
+from agent.perception.video_source import FileVideoSource
 from agent.reasoning.sampler import AdaptiveFrameSampler
 
 logger = logging.getLogger("herdflow")
 
 server = AgentServer()
 
-# Use MockDetector for dev, RFDETRDetector for prod
-USE_REAL_DETECTOR = False  # Toggle for GPU availability
-
 
 @server.on_process_started
 async def on_process_started(proc: AgentServer.Process) -> None:
     """Pre-load VAD and detector models."""
     proc.userdata["vad"] = silero.VAD.load()
-    if USE_REAL_DETECTOR:
+
+    if settings.use_real_detector:
+        from agent.perception.detector import RFDETRDetector  # noqa: PLC0415
+
         proc.userdata["detector"] = RFDETRDetector(
             model_name=settings.rfdetr_model,
             threshold=settings.rfdetr_detection_threshold,
         )
     else:
         proc.userdata["detector"] = MockDetector()
+
+    # Set up file-based video source for demo
+    proc.userdata["video_source"] = FileVideoSource(
+        path=settings.demo_video_path,
+        target_fps=settings.max_fps,
+    )
+
     logger.info(
-        "HerdFlow agent process started (detector=%s)",
-        "RF-DETR" if USE_REAL_DETECTOR else "mock",
+        "HerdFlow process started (detector=%s, video=%s)",
+        type(proc.userdata["detector"]).__name__,
+        settings.demo_video_path,
     )
 
 
@@ -87,7 +96,8 @@ async def entrypoint(ctx: AgentServer.SessionContext) -> None:
     )
 
     # Start background tasks
-    asyncio.create_task(perception_loop(ctx, scene_builder, scene_queue))
+    video_source = ctx.proc.userdata["video_source"]
+    asyncio.create_task(perception_loop(ctx, scene_builder, scene_queue, video_source))
     asyncio.create_task(sampler.run(scene_queue, session.update_chat_ctx))
 
     # Greet the farmer
@@ -99,17 +109,21 @@ async def perception_loop(
     ctx: AgentServer.SessionContext,
     builder: SceneGraphBuilder,
     scene_queue: asyncio.Queue,  # type: ignore[type-arg]
+    video_source: FileVideoSource | None = None,
 ) -> None:
-    """Consume video frames from LiveKit, run perception pipeline."""
+    """Run perception pipeline on video frames (file or LiveKit)."""
     frame_id = 0
     prev_sg = None
 
-    # For now, generate mock frames at ~2 FPS when no video track
+    # Use file video source if available, otherwise fall back to random noise
+    frame_iter = video_source.frames() if video_source else None
+
     while True:
         frame_id += 1
-        # TODO: Get real frame from LiveKit video track
-        # For now use mock frames
-        frame = np.random.randint(0, 255, (720, 1280, 3), dtype=np.uint8)
+        if frame_iter is not None:
+            frame = next(frame_iter)
+        else:
+            frame = np.random.randint(0, 255, (720, 1280, 3), dtype=np.uint8)
 
         sg = await builder.process_frame(frame, frame_id)
         delta = builder.get_delta(prev_sg, sg)

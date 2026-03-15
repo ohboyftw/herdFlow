@@ -26,6 +26,8 @@ class Settings(BaseSettings):
     alert_isolation_threshold: float = 0.7
     alert_missed_feeding_s: float = 14400
     entity_id_prefix: str = "COW-"
+    demo_video_path: str = "demo_videos/cattle_pen_720p.mp4"
+    use_real_detector: bool = False
 
     # Zone config (frame-relative percentages)
     zone_config: dict = {
