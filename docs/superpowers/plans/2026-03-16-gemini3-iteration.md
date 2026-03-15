@@ -1,97 +1,146 @@
-# Gemini 3 STT/TTS Iteration Plan
+# Gemini 3 STT/TTS Iteration Plan (v2 — post-review)
 
 **Branch**: `gemini3-stt-tts`
 **Spec**: `docs/superpowers/specs/2026-03-16-gemini3-stt-tts-design.md`
 **Approach**: Log first, look later. Each step validates one layer, commits, moves on.
+**Realistic estimate**: ~3 hours
 
 ---
 
-## Step 1: Validate GCP credentials + STT + TTS + Gemini 3 (offline)
+## Step 1: Config + Credential Setup
+
+**Files**: `agent/config.py`, `.env`, `.env.example`
+
+- [ ] Add `google_credentials_file: str = "credentials.json"` to `Settings`
+- [ ] Add `GOOGLE_CREDENTIALS_FILE=credentials.json` to `.env.example`
+- [ ] Verify `.env` is in `.gitignore` (contains live secrets)
+- [ ] Verify `credentials.json` is in `.gitignore`
+
+**Commit**: `chore: add GCP credentials config`
+
+---
+
+## Step 2: Layer Validation Script (offline, no LiveKit)
 
 **Files**: Create `scripts/test_layers.py`
 
-- [ ] Test Cloud STT auth with `credentials.json`
-- [ ] Test Gemini 3 Flash text completion via `google.LLM`
-- [ ] Test Cloud TTS synthesis via `google.TTS`
-- [ ] Print pass/fail for each, log errors
+Tests each component in isolation, then wired together:
+
+- [ ] **Layer 1 — GCP Auth**: Instantiate `google.STT(credentials_file=...)`, verify no auth error
+- [ ] **Layer 2 — Cloud STT**: Transcribe a short WAV file, print result
+- [ ] **Layer 3 — Gemini 3 Flash**: `google.LLM(model="gemini-3-flash-preview")` answer a vet question
+- [ ] **Layer 4 — Cloud TTS**: Synthesize a sentence, save to WAV
+- [ ] **Layer 5 — Round-trip**: STT text → Gemini 3 + scene context → TTS audio (total < 3s)
+- [ ] **Layer 5b — Tool smoke test**: Verify `google.LLM` can call a `@function_tool` function
 
 ```bash
 GOOGLE_APPLICATION_CREDENTIALS=credentials.json uv run python -m scripts.test_layers
 ```
 
-**Commit**: `test: layer validation script for GCP credentials + STT + LLM + TTS`
+**Commit**: `test: offline layer validation — STT + LLM + TTS + tool calls`
 
 ---
 
-## Step 2: Update agent/main.py for STT + LLM + TTS pipeline
+## Step 3: Update agent/main.py for STT + LLM + TTS
 
-**Files**: Modify `agent/main.py`
+**Files**: `agent/main.py`
 
-- [ ] Replace `google.beta.realtime.RealtimeModel` with `google.STT()` + `google.LLM(model="gemini-3-flash-preview")` + `google.TTS()`
-- [ ] Pass `credentials_file` to STT and TTS
-- [ ] Keep Silero VAD
-- [ ] Keep perception loop + data channels unchanged
+- [ ] Replace `google.beta.realtime.RealtimeModel(...)` with three components:
+  ```python
+  stt=google.STT(credentials_file=settings.google_credentials_file)
+  llm=google.LLM(model="gemini-3-flash-preview", thinking_config={"thinking_budget": 256})
+  tts=google.TTS(credentials_file=settings.google_credentials_file)
+  ```
+- [ ] Remove `proactivity=True` and `enable_affective_dialog=True` (RealtimeModel-only features)
+- [ ] **Proactive alerts replacement**: Add alert-triggered `session.say()` in perception loop when critical alerts fire (replaces model-driven proactivity)
+- [ ] Keep Silero VAD, perception loop, data channels unchanged
 
 **Commit**: `feat: switch to Gemini 3 Flash + Cloud STT/TTS pipeline`
 
 ---
 
-## Step 3: Test RF-DETR on cattle video
+## Step 4: RF-DETR on Cattle Video (PARALLEL with Step 5)
 
-**Files**: None (config change only)
+**Files**: None (config + test only)
 
-- [ ] Set `USE_REAL_DETECTOR=1` in `.env`
-- [ ] Run `scripts/trace_pipeline.py` with `cattle_pen_720p.mp4`
+- [ ] Run `scripts/trace_pipeline.py` with `DEMO_VIDEO_PATH=demo_videos/cattle_pen_720p.mp4` and `USE_REAL_DETECTOR=1`
 - [ ] Run with `yt_cattle_farm_720p.mp4`
-- [ ] Evaluate: does it detect cows? What confidence? How many FPS?
-- [ ] Decision: use real detector or stay with mock for demo
+- [ ] Log: detection count, confidence range, FPS
+- [ ] **Decision gate**: Use real detector or stay with mock for demo
 
 **Commit**: `test: RF-DETR evaluation on cattle demo videos`
 
 ---
 
-## Step 4: End-to-end LiveKit test
+## Step 5: End-to-End LiveKit Test (PARALLEL with Step 4)
 
-**Files**: Update `frontend/public/test.html` token
+**Files**: `frontend/public/test.html`
 
-- [ ] Start agent: `uv run python -m agent.main dev`
+- [ ] Generate fresh LiveKit token (previous ones expired)
+- [ ] Update test.html with new token + LiveKit Cloud URL
+- [ ] Start agent: `GOOGLE_APPLICATION_CREDENTIALS=credentials.json uv run python -m agent.main dev`
 - [ ] Connect via test page
-- [ ] Verify: voice response < 3s
-- [ ] Verify: scene data flowing
-- [ ] Verify: ask "how are the cows?" — agent uses scene context
-- [ ] Log review: check all [B1]-[B8] boundaries firing
+- [ ] Verify: voice response latency (target < 3s)
+- [ ] Verify: scene data flowing in data channels
+- [ ] Verify: agent references scene context in responses
+- [ ] Log review: check [B1]-[B8] + STT/LLM/TTS trace
 
-**Commit**: `fix: any issues found during e2e test`
+**Commit**: `fix: e2e issues found during LiveKit test`
 
 ---
 
-## Step 5: Tool call test
+## Step 6: Tool Call Test
 
-- [ ] Ask: "How long has cow 3 been lying?"
+- [ ] During live session, ask: "How long has cow 3 been lying?"
 - [ ] Ask: "How many cows fed in the last hour?"
-- [ ] Verify tool functions are called (check agent logs)
-- [ ] Fix any tool registration issues
+- [ ] Ask: "Which cow is near the fence?"
+- [ ] Verify tool functions called (check agent logs for `search_entity_history`, `get_herd_stats`, etc.)
+- [ ] Verify responses contain mock data (COW-003 lying 4320s, 6/8 fed, COW-005 near fence)
 
 **Commit**: `fix: tool call issues (if any)`
 
 ---
 
-## Step 6: Frontend React app
+## Step 7: Frontend React App
 
-**Files**: Update `frontend/.env`, verify `frontend/src/App.tsx`
+**Files**: `frontend/.env`
 
-- [ ] Set `VITE_LIVEKIT_URL` and `VITE_LIVEKIT_TOKEN` in `frontend/.env`
-- [ ] Start frontend: `cd frontend && npm run dev`
-- [ ] Verify Dashboard, AlertPanel, VoicePanel render with live data
-- [ ] Screenshot for submission
+- [ ] Set `VITE_LIVEKIT_URL=wss://herdflow-wfjy59n7.livekit.cloud`
+- [ ] Generate fresh token, set `VITE_LIVEKIT_TOKEN=...`
+- [ ] Start: `cd frontend && npm run dev`
+- [ ] Verify: Dashboard shows herd summary
+- [ ] Verify: AlertPanel shows severity-colored cards
+- [ ] Verify: VoicePanel shows speaking indicator
+- [ ] Verify: SVG overlays render (if RF-DETR active)
 
 **Commit**: `feat: frontend wired to LiveKit Cloud`
 
 ---
 
-## Step 7: Final commit + save state
+## Step 8: Final Validation + Demo Prep
 
-- [ ] Run full test suite: `uv run pytest tests/ -v`
+- [ ] Run full test suite: `.venv/Scripts/python -m pytest tests/ -v` (86+ tests pass)
+- [ ] Run `scripts/trace_pipeline.py` clean
 - [ ] Commit all changes
 - [ ] Update memory with final state
-- [ ] Merge to master if everything works
+- [ ] Merge to master if stable
+- [ ] Demo recording (separate task — OBS screen capture, 4 min)
+
+**Commit**: `chore: final validation before merge`
+
+---
+
+## Review Issues Addressed
+
+| Review Issue | Resolution |
+|---|---|
+| I1 (crit) credentials config missing | Step 1 adds to Settings + .env.example |
+| I2 (crit) offline pipeline test skipped | Step 2 includes Layer 5 round-trip + tool smoke test |
+| I3 (crit) demo recording omitted | Step 8 includes demo prep |
+| I4 (mod) proactivity loss | Step 3 adds alert-triggered session.say() |
+| I5 (mod) steps 3+4 serial | Steps 4+5 marked PARALLEL |
+| I6 (mod) expired frontend token | Steps 5+7 generate fresh tokens |
+| I7 (mod) secrets in .env | Step 1 verifies .gitignore |
+| I8 (minor) time optimistic | Updated to ~3 hours |
+| I9 (minor) test criteria unspecified | Step 2 lists all 5 layers + tool smoke |
+| I10 (minor) Cloud Run not deployed | Step 8 notes demo recording; deployment deferred |
