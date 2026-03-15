@@ -89,13 +89,23 @@ async def entrypoint(ctx: JobContext) -> None:
     )
     scene_queue: asyncio.Queue = asyncio.Queue(maxsize=10)
 
-    # Create Gemini session with HerdFlow agent
+    # Create Gemini 3 session with separate STT + LLM + TTS
+    from google.cloud import texttospeech  # noqa: PLC0415
+
     session = AgentSession(
-        llm=google.beta.realtime.RealtimeModel(
-            model="gemini-2.5-flash-native-audio-latest",
-            proactivity=True,
-            enable_affective_dialog=True,
+        stt=google.STT(
+            credentials_file=settings.google_credentials_file,
+            languages="en-US",
+        ),
+        llm=google.LLM(
+            model=settings.gemini_model,
             thinking_config={"thinking_budget": 256},
+        ),
+        tts=google.TTS(
+            credentials_file=settings.google_credentials_file,
+            audio_encoding=texttospeech.AudioEncoding.LINEAR16,
+            use_streaming=False,
+            speaking_rate=1.1,
         ),
         vad=vad,
     )
@@ -129,7 +139,7 @@ async def entrypoint(ctx: JobContext) -> None:
         await session.update_agent(agent)
 
     # Start background tasks
-    asyncio.create_task(perception_loop(ctx, scene_builder, scene_queue, video_source))
+    asyncio.create_task(perception_loop(ctx, scene_builder, scene_queue, video_source, session))
     asyncio.create_task(sampler.run(scene_queue, inject_context))
 
     # Greet the farmer
@@ -142,6 +152,7 @@ async def perception_loop(
     builder: SceneGraphBuilder,
     scene_queue: asyncio.Queue,  # type: ignore[type-arg]
     video_source: FileVideoSource | None = None,
+    session: AgentSession | None = None,
 ) -> None:
     """Run perception pipeline on video frames (file or random)."""
     frame_id = 0
@@ -191,6 +202,12 @@ async def perception_loop(
             )
         except Exception:  # noqa: BLE001
             logger.debug("Data channel publish failed (no participants?)")
+
+        # Proactive alerts: speak critical/alert-level alerts immediately
+        if session is not None:
+            for alert in sg.active_alerts:
+                if alert.severity.value in ("alert", "critical"):
+                    await session.say(alert.description, allow_interruptions=True)
 
         # Feed to sampler queue (non-blocking, drop if full)
         with contextlib.suppress(asyncio.QueueFull):
