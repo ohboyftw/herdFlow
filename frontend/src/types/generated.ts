@@ -44,7 +44,7 @@ export interface SceneGraph {
   timestamp: string;
   frame_id: number;
   herd_summary: HerdSummary;
-  tracked_entities: TrackedEntityModel[];
+  tracked_entities: TrackedEntity[];
   zones: Record<string, ZoneOccupancy>;
   active_alerts: Alert[];
 }

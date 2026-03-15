@@ -58,11 +58,14 @@ def schema_to_interface(name: str, schema: dict, defs: dict) -> str:
     return "\n".join(lines)
 
 
+NAME_REMAP = {"TrackedEntityModel": "TrackedEntity"}
+
+
 def resolve_type(field_schema: dict, defs: dict) -> str:
     """Resolve a JSON Schema field to a TypeScript type."""
     if "$ref" in field_schema:
         ref_name = field_schema["$ref"].split("/")[-1]
-        return ref_name
+        return NAME_REMAP.get(ref_name, ref_name)
 
     if "anyOf" in field_schema:
         types = [resolve_type(t, defs) for t in field_schema["anyOf"]]
