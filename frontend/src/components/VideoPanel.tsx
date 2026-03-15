@@ -120,13 +120,15 @@ export function VideoPanel({ room }: VideoPanelProps) {
 
         {/* Animal bounding boxes */}
         {overlayData?.boxes.map((box) => {
-          const [bx, by, bw, bh] = box.bbox;
+          const [x1, y1, x2, y2] = box.bbox;
+          const bw = x2 - x1;
+          const bh = y2 - y1;
           const color = boxColor(box);
           return (
             <g key={box.track_id}>
               <rect
-                x={bx}
-                y={by}
+                x={x1}
+                y={y1}
                 width={bw}
                 height={bh}
                 fill="none"
@@ -136,16 +138,16 @@ export function VideoPanel({ room }: VideoPanelProps) {
               />
               {/* Track ID label above box */}
               <rect
-                x={bx}
-                y={by - 20}
+                x={x1}
+                y={y1 - 20}
                 width={Math.max(box.track_id.length * 7.5, 48)}
                 height={18}
                 fill={`${color}33`}
                 rx={2}
               />
               <text
-                x={bx + 4}
-                y={by - 6}
+                x={x1 + 4}
+                y={y1 - 6}
                 fill={color}
                 fontSize={12}
                 fontFamily="monospace"

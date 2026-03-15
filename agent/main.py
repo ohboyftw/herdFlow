@@ -17,6 +17,7 @@ from livekit.plugins import google, silero
 from agent.alerts.rules import AlertRuleEngine
 from agent.config import settings
 from agent.herdflow_agent import HerdFlowAgent
+from agent.models import OverlayBox, OverlayData
 from agent.perception.detector import MockDetector, RFDETRDetector
 from agent.perception.scene_graph import SceneGraphBuilder
 from agent.perception.tracker import Tracker
@@ -88,7 +89,6 @@ async def entrypoint(ctx: AgentServer.SessionContext) -> None:
     # Start background tasks
     asyncio.create_task(perception_loop(ctx, scene_builder, scene_queue))
     asyncio.create_task(sampler.run(scene_queue, session.update_chat_ctx))
-    asyncio.create_task(data_channel_publisher(ctx, scene_builder))
 
     # Greet the farmer
     await session.generate_reply()
@@ -115,18 +115,36 @@ async def perception_loop(
         delta = builder.get_delta(prev_sg, sg)
         prev_sg = sg
 
+        # Publish to LiveKit data channels (best-effort)
+        try:
+            room = ctx.room
+            await room.local_participant.publish_data(
+                sg.model_dump_json().encode(), topic="scene_graph"
+            )
+            overlay = OverlayData(
+                frame_id=frame_id,
+                boxes=[
+                    OverlayBox(
+                        track_id=e.track_id,
+                        bbox=e.bbox,
+                        behavior=e.behavior,
+                        flags=e.flags,
+                    )
+                    for e in sg.tracked_entities
+                ],
+            )
+            await room.local_participant.publish_data(
+                overlay.model_dump_json().encode(), topic="overlay"
+            )
+            for alert in sg.active_alerts:
+                await room.local_participant.publish_data(
+                    alert.model_dump_json().encode(), topic="alerts"
+                )
+        except Exception:  # noqa: BLE001
+            logger.debug("No participants yet, skipping data publish")
+
         # Feed to sampler queue (non-blocking, drop if full)
         with contextlib.suppress(asyncio.QueueFull):
-            scene_queue.put_nowait((sg, delta))  # drop frame if sampler is behind
+            scene_queue.put_nowait((sg, delta))
 
         await asyncio.sleep(0.5)  # ~2 FPS
-
-
-async def data_channel_publisher(
-    ctx: AgentServer.SessionContext,
-    builder: SceneGraphBuilder,
-) -> None:
-    """Publish scene graph and overlay data to LiveKit data channels."""
-    # TODO: Implement data channel publishing when LiveKit room is connected
-    # For now this is a placeholder
-    pass

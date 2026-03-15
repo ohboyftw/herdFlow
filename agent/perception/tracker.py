@@ -12,7 +12,11 @@ from agent.models import Detection, TrackedEntity, TrackState
 
 
 class Tracker:
-    """Persistent multi-object tracker using ByteTrack."""
+    """Persistent multi-object tracker using ByteTrack.
+
+    Uses minimum_consecutive_frames=1 so every matched detection is returned
+    immediately, avoiding the confirmation delay of the default setting.
+    """
 
     def __init__(self, entity_id_prefix: str = "") -> None:
         self.entity_id_prefix = entity_id_prefix or settings.entity_id_prefix
@@ -20,7 +24,7 @@ class Tracker:
             track_activation_threshold=0.3,
             minimum_consecutive_frames=1,
         )
-        self._id_map: dict[int, str] = {}  # ByteTrack ID -> our track ID
+        self._id_map: dict[int, str] = {}  # ByteTrack external ID -> our track ID
         self._next_id = 1
         self._entity_state: dict[str, TrackedEntity] = {}
 
@@ -50,8 +54,10 @@ class Tracker:
         tracked = self._tracker.update_with_detections(sv_dets)
 
         # Convert back to TrackedEntity
-        entities = []
+        entities: list[TrackedEntity] = []
         now = datetime.now(UTC)
+        class_name = detections[0].class_name if detections else "cow"
+
         for i in range(len(tracked)):
             bt_id = int(tracked.tracker_id[i])
             track_id = self._get_track_id(bt_id)
@@ -73,9 +79,6 @@ class Tracker:
                 vx, vy = 0.0, 0.0
                 age = 1
                 first_seen = now
-
-            # Resolve class_name from original detections by matching bt index
-            class_name = detections[0].class_name if detections else "cow"
 
             entity = TrackedEntity(
                 track_id=track_id,

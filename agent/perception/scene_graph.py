@@ -39,10 +39,11 @@ class SceneGraphBuilder:
         # Track
         entities = self.tracker.update(detections, frame_id)
 
-        # Classify behaviors, assign zones, compute isolation
+        # Assign zones first (behavior classification depends on zone)
         for entity in entities:
-            self._classify_behavior(entity)
             self._assign_zone(entity)
+            self._accumulate_temporal_state(entity)
+            self._classify_behavior(entity)
 
         for entity in entities:
             self._compute_isolation(entity, entities)
@@ -54,6 +55,33 @@ class SceneGraphBuilder:
         sg = self._build_graph(entities, alerts, frame_id)
         self._prev_entities = {e.track_id: e for e in entities}
         return sg
+
+    def _accumulate_temporal_state(self, entity: TrackedEntity) -> None:
+        """Carry forward temporal fields from previous frame's entity state."""
+        prev = self._prev_entities.get(entity.track_id)
+        if prev is None:
+            return
+
+        # Assume ~0.5s per frame (2 FPS pipeline)
+        dt = 0.5
+
+        # Zone dwell: accumulate if same zone, reset on change
+        if entity.zone == prev.zone:
+            entity.zone_dwell_s = prev.zone_dwell_s + dt
+        else:
+            entity.zone_dwell_s = 0.0
+
+        # Behavior duration: accumulate if same behavior, reset on change
+        if entity.behavior == prev.behavior:
+            entity.behavior_duration_s = prev.behavior_duration_s + dt
+        else:
+            entity.behavior_duration_s = 0.0
+
+        # Last feed visit: track time since entity was last in feed_area
+        if entity.zone == "feed_area":
+            entity.last_feed_visit_s = 0.0
+        else:
+            entity.last_feed_visit_s = prev.last_feed_visit_s + dt
 
     def _classify_behavior(self, entity: TrackedEntity) -> None:
         """Priority chain: walking → feeding/drinking → lying → standing."""

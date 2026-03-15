@@ -1,7 +1,7 @@
 """Golden path end-to-end tests: verify data flows through all 3 tiers without breaking.
 
 These tests trace data from mock video frame through the entire pipeline:
-  Frame → Detection → TrackedEntity → SceneGraph → SceneDelta → GeminiContext JSON → TypeScript parse
+  Frame → Detection → TrackedEntity → SceneGraph → SceneDelta → GeminiContext JSON
 
 Reference: Design doc Section 10 (Golden Path Tests).
 """
@@ -13,24 +13,18 @@ import json
 import numpy as np
 
 from agent.models import (
-    Alert,
     GeminiContext,
     OverlayBox,
     OverlayData,
-    SceneDelta,
     SceneGraph,
     SceneGraphSnapshot,
-    TrackedEntityModel,
 )
 from tests.conftest import (
     FRONTEND_REQUIRED_FIELDS,
     make_alert,
-    make_gemini_context,
-    make_herd_summary,
     make_scene_delta,
     make_scene_graph,
     make_tracked_entity,
-    make_tracked_entity_model,
     sample_frame,
 )
 
@@ -47,11 +41,10 @@ def test_full_pipeline_golden_path():
 
     # Step 2: Detector produces detections (mocked)
     from agent.models import Detection
+
     detections = [
-        Detection(class_id=20, class_name="cow", confidence=0.94,
-                  bbox=(120, 340, 280, 720)),
-        Detection(class_id=20, class_name="cow", confidence=0.87,
-                  bbox=(400, 200, 550, 600)),
+        Detection(class_id=20, class_name="cow", confidence=0.94, bbox=(120, 340, 280, 720)),
+        Detection(class_id=20, class_name="cow", confidence=0.87, bbox=(400, 200, 550, 600)),
     ]
     assert len(detections) == 2
 
@@ -71,9 +64,7 @@ def test_full_pipeline_golden_path():
     # ── Tier 2: Multimodal Reasoning ──
 
     # Step 5: SceneDelta computed (first frame → all entities are new)
-    delta = make_scene_delta(
-        new_entities=[e.track_id for e in sg.tracked_entities]
-    )
+    delta = make_scene_delta(new_entities=[e.track_id for e in sg.tracked_entities])
     assert delta.is_significant is True
 
     # Step 6: GeminiContext built for injection
@@ -184,8 +175,8 @@ def test_alert_pipeline_golden_path():
 
 def test_quiet_scene_produces_no_triggers():
     """A scene with no changes should produce a non-significant delta."""
-    sg1 = make_scene_graph(entities=5)
-    sg2 = make_scene_graph(entities=5)  # same composition
+    make_scene_graph(entities=5)  # build two identical graphs
+    make_scene_graph(entities=5)
 
     # Simulate get_delta with identical graphs
     delta = make_scene_delta()  # all empty lists

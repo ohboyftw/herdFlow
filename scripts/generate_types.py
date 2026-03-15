@@ -47,12 +47,12 @@ def schema_to_interface(name: str, schema: dict, defs: dict) -> str:
     """Convert a JSON Schema to a TypeScript interface."""
     lines = [f"export interface {name} {{"]
     props = schema.get("properties", {})
-    required = set(schema.get("required", []))
 
     for field_name, field_schema in props.items():
         ts_type = resolve_type(field_schema, defs)
-        optional = "" if field_name in required else "?"
-        lines.append(f"  {field_name}{optional}: {ts_type};")
+        # All fields are always present in serialized output (defaults are populated),
+        # so treat every property as required for the TypeScript consumer.
+        lines.append(f"  {field_name}: {ts_type};")
 
     lines.append("}")
     return "\n".join(lines)

@@ -65,7 +65,7 @@ def test_engine_dedup_same_alert():
         isolation_score=0.82,
         last_feed_visit_s=18000,
     )
-    alerts1 = engine.evaluate([entity])
+    engine.evaluate([entity])
     alerts2 = engine.evaluate([entity])  # same entity, same state
     # Second call should be suppressed by cooldown
     assert len(alerts2) == 0
@@ -87,3 +87,4 @@ def test_engine_auto_resolves_cleared_condition():
     )
     engine.evaluate([entity_standing])
     # Active alerts for this entity should be resolved
+    assert len(engine._active) == 0

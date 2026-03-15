@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from agent.models import TrackedEntity
 from agent.perception.tracker import Tracker
 from tests.conftest import make_detection
 

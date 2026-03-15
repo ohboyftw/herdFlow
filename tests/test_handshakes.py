@@ -23,24 +23,15 @@ from __future__ import annotations
 import json
 
 import numpy as np
-import pytest
 
 from agent.models import (
     Alert,
-    GeminiContext,
-    OverlayBox,
-    OverlayData,
-    SceneDelta,
-    SceneGraph,
-    SceneGraphSnapshot,
     Severity,
-    TrackedEntity,
     TrackedEntityModel,
     TrackState,
 )
 from tests.conftest import (
     FRONTEND_REQUIRED_FIELDS,
-    NOW,
     make_alert,
     make_detection,
     make_gemini_context,
@@ -48,10 +39,8 @@ from tests.conftest import (
     make_scene_delta,
     make_scene_graph,
     make_tracked_entity,
-    make_tracked_entity_model,
     sample_frame,
 )
-
 
 # ── Boundary 1: VideoFrame → Detector ──
 
@@ -184,7 +173,7 @@ def test_boundary_5_alert_conforms_to_model():
 
 def test_boundary_6_scene_delta_drives_sampling():
     """Sampler receives (SceneGraph, SceneDelta) and checks is_significant."""
-    sg = make_scene_graph(entities=8)
+    make_scene_graph(entities=8)  # scene graph exists for context
     delta_significant = make_scene_delta(new_entities=["COW-009"])
     delta_quiet = make_scene_delta()
 
@@ -196,9 +185,7 @@ def test_boundary_6_first_frame_always_significant():
     """Delta from None → first SceneGraph should be significant (new entities)."""
     sg = make_scene_graph(entities=5)
     # Simulate get_delta(None, sg) — all entities are new
-    delta = make_scene_delta(
-        new_entities=[e.track_id for e in sg.tracked_entities]
-    )
+    delta = make_scene_delta(new_entities=[e.track_id for e in sg.tracked_entities])
     assert delta.is_significant is True
     assert len(delta.new_entities) == 5
 
@@ -284,9 +271,7 @@ def test_boundary_9_python_to_typescript_contract():
             items = [items]
         for item in items:
             for field in fields:
-                assert field in item, (
-                    f"Frontend needs {section}.{field} but backend dropped it"
-                )
+                assert field in item, f"Frontend needs {section}.{field} but backend dropped it"
 
 
 def test_boundary_9_alert_severity_is_string():
@@ -305,4 +290,5 @@ def test_boundary_9_timestamp_is_iso_string():
     assert isinstance(ts, str)
     # Should be parseable as ISO 8601
     from datetime import datetime
+
     datetime.fromisoformat(ts)

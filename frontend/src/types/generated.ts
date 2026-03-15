@@ -30,14 +30,14 @@ export interface TrackedEntity {
 }
 
 export interface Alert {
-  id?: string;
+  id: string;
   type: string;
   severity: Severity;
   entity_track_id: string;
   description: string;
-  timestamp?: string;
-  resolved?: boolean;
-  resolved_at?: string | null;
+  timestamp: string;
+  resolved: boolean;
+  resolved_at: string | null;
 }
 
 export interface SceneGraph {

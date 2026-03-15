@@ -15,15 +15,11 @@ import pytest
 
 from agent.models import (
     Alert,
-    GeminiContext,
     HerdSummary,
     OverlayBox,
-    OverlayData,
-    SceneDelta,
     SceneGraph,
     SceneGraphSnapshot,
     Severity,
-    TrackedEntityModel,
     ZoneOccupancy,
 )
 from tests.conftest import (
@@ -36,7 +32,6 @@ from tests.conftest import (
     make_tracked_entity_model,
 )
 
-
 # ── Round-Trip Serialization ──
 
 
@@ -47,18 +42,31 @@ SERIALIZABLE_MODELS = [
     ("SceneDelta_significant", lambda: make_scene_delta(new_entities=["COW-009"])),
     ("SceneDelta_empty", lambda: make_scene_delta()),
     ("TrackedEntityModel", lambda: make_tracked_entity_model()),
-    ("HerdSummary", lambda: HerdSummary(total_visible=8, standing=3, lying=2, walking=1, feeding=1, drinking=1)),
+    (
+        "HerdSummary",
+        lambda: HerdSummary(total_visible=8, standing=3, lying=2, walking=1, feeding=1, drinking=1),
+    ),
     ("ZoneOccupancy", lambda: ZoneOccupancy(occupancy=3)),
     ("OverlayData", lambda: make_overlay_data(entities=5)),
-    ("OverlayBox", lambda: OverlayBox(track_id="COW-001", bbox=[120, 340, 280, 720], behavior="standing", flags=[])),
+    (
+        "OverlayBox",
+        lambda: OverlayBox(
+            track_id="COW-001", bbox=[120, 340, 280, 720], behavior="standing", flags=[]
+        ),
+    ),
     ("GeminiContext", lambda: make_gemini_context(entities=5, alerts=1)),
-    ("SceneGraphSnapshot", lambda: SceneGraphSnapshot(
-        timestamp=make_scene_graph().timestamp,
-        frame_id=100,
-        herd_summary=HerdSummary(total_visible=8, standing=3, lying=2, walking=1, feeding=1, drinking=1),
-        entity_count=8,
-        alert_types=["prolonged_lying"],
-    )),
+    (
+        "SceneGraphSnapshot",
+        lambda: SceneGraphSnapshot(
+            timestamp=make_scene_graph().timestamp,
+            frame_id=100,
+            herd_summary=HerdSummary(
+                total_visible=8, standing=3, lying=2, walking=1, feeding=1, drinking=1
+            ),
+            entity_count=8,
+            alert_types=["prolonged_lying"],
+        ),
+    ),
 ]
 
 
@@ -73,9 +81,7 @@ def test_roundtrip_serialization(name: str, factory):
     json_str = original.model_dump_json()
     roundtripped = type(original).model_validate_json(json_str)
     assert original == roundtripped, (
-        f"Round-trip failed for {name}. "
-        f"Original: {original}\n"
-        f"Roundtripped: {roundtripped}"
+        f"Round-trip failed for {name}. Original: {original}\nRoundtripped: {roundtripped}"
     )
 
 
@@ -149,8 +155,11 @@ def test_scene_delta_significant_on_alert():
 def test_scene_delta_significant_on_zone_crossing():
     """SceneDelta with a zone crossing should be significant."""
     from agent.models import ZoneCrossing
+
     delta = make_scene_delta(
-        zone_crossings=[ZoneCrossing(track_id="COW-001", from_zone="rest_area", to_zone="feed_area")]
+        zone_crossings=[
+            ZoneCrossing(track_id="COW-001", from_zone="rest_area", to_zone="feed_area")
+        ]
     )
     assert delta.is_significant is True
 
@@ -158,8 +167,11 @@ def test_scene_delta_significant_on_zone_crossing():
 def test_scene_delta_significant_on_behavior_change():
     """SceneDelta with a behavior change should be significant."""
     from agent.models import BehaviorChange
+
     delta = make_scene_delta(
-        behavior_changes=[BehaviorChange(track_id="COW-001", from_behavior="standing", to_behavior="lying")]
+        behavior_changes=[
+            BehaviorChange(track_id="COW-001", from_behavior="standing", to_behavior="lying")
+        ]
     )
     assert delta.is_significant is True
 
@@ -181,6 +193,7 @@ def test_alert_id_auto_generated():
 def test_alert_utc_enforcement():
     """Alert timestamps without timezone should be coerced to UTC."""
     from datetime import datetime
+
     naive = datetime(2026, 3, 15, 9, 0, 0)
     alert = Alert(
         type="test",

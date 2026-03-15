@@ -24,7 +24,7 @@ dev = [
     "hypothesis-jsonschema>=0.23",
     "ruff>=0.8",
     "pyright>=1.1",
-    "pydantic-to-typescript>=1.0",
+    "pydantic-to-typescript2>=1.0",
 ]
 
 [tool.ruff]

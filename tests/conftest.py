@@ -7,8 +7,7 @@ These are consumers of the design — they do NOT define new interfaces.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from uuid import uuid4
+from datetime import UTC, datetime
 
 import numpy as np
 import pytest
@@ -16,13 +15,8 @@ import pytest
 from agent.models import (
     Alert,
     BehaviorChange,
-    BehaviorRecord,
-    DescriptionMatch,
-    DescriptionSearchResult,
     Detection,
-    EntityHistory,
     GeminiContext,
-    HerdStats,
     HerdSummary,
     OverlayBox,
     OverlayData,
@@ -34,12 +28,10 @@ from agent.models import (
     TrackedEntityModel,
     TrackState,
     ZoneCrossing,
-    ZoneHistory,
     ZoneOccupancy,
-    ZoneVisit,
 )
 
-NOW = datetime(2026, 3, 15, 9, 23, 1, tzinfo=timezone.utc)
+NOW = datetime(2026, 3, 15, 9, 23, 1, tzinfo=UTC)
 
 
 # ── Primitive Factories ──
@@ -166,10 +158,7 @@ def make_scene_graph(
         )
         for i in range(1, entities + 1)
     ]
-    alert_list = [
-        make_alert(entity_track_id=f"COW-{i:03d}")
-        for i in range(1, alerts + 1)
-    ]
+    alert_list = [make_alert(entity_track_id=f"COW-{i:03d}") for i in range(1, alerts + 1)]
     return SceneGraph(
         timestamp=NOW,
         frame_id=frame_id,
@@ -248,14 +237,29 @@ def sample_frame(width: int = 1280, height: int = 720) -> np.ndarray:
 
 FRONTEND_REQUIRED_FIELDS = {
     "tracked_entities": [
-        "track_id", "bbox", "centroid", "behavior",
-        "behavior_duration_s", "flags", "confidence", "zone",
+        "track_id",
+        "bbox",
+        "centroid",
+        "behavior",
+        "behavior_duration_s",
+        "flags",
+        "confidence",
+        "zone",
     ],
     "active_alerts": [
-        "id", "type", "severity", "entity_track_id", "description",
+        "id",
+        "type",
+        "severity",
+        "entity_track_id",
+        "description",
     ],
     "herd_summary": [
-        "total_visible", "standing", "lying", "walking", "feeding", "drinking",
+        "total_visible",
+        "standing",
+        "lying",
+        "walking",
+        "feeding",
+        "drinking",
     ],
     "zones": None,
 }
