@@ -1,0 +1,43 @@
+[project]
+name = "herdflow"
+version = "0.1.0"
+description = "Real-time AI veterinary co-pilot for livestock monitoring"
+requires-python = ">=3.12"
+dependencies = [
+    "livekit-agents>=1.0",
+    "livekit-plugins-google>=1.0",
+    "livekit-plugins-silero>=1.0",
+    "rfdetr>=1.0",
+    "supervision>=0.25",
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    "numpy>=1.26",
+    "aiosqlite>=0.20",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "anyio>=4.0",
+    "hypothesis>=6.0",
+    "hypothesis-jsonschema>=0.23",
+    "ruff>=0.8",
+    "pyright>=1.1",
+    "pydantic-to-typescript>=1.0",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "A", "SIM"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.pyright]
+pythonVersion = "3.12"
+typeCheckingMode = "standard"
