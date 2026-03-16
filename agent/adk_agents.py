@@ -17,9 +17,24 @@ Future (v2 — system of records):
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from google.adk.agents import Agent
+
+if TYPE_CHECKING:
+    from agent.reasoning.video_analyst import VideoAnalyst
+
+logger = logging.getLogger("herdflow")
+
+_video_analyst: VideoAnalyst | None = None
+
+
+def set_video_analyst(analyst: VideoAnalyst) -> None:
+    """Wire the video analyst instance for tool access."""
+    global _video_analyst
+    _video_analyst = analyst
 
 from agent.models import (
     BehaviorRecord,
@@ -112,9 +127,37 @@ async def get_zone_history(zone: str, minutes: int = 120) -> dict:
     ).model_dump()
 
 
+async def get_scene_summary() -> dict:
+    """Get the latest visual summary of the camera feed.
+
+    Returns a 2-3 sentence description of what the camera currently shows,
+    including animal count, postures, and any notable observations.
+    """
+    if _video_analyst is None:
+        logger.warning("get_scene_summary called but video analyst not initialized")
+        return {"summary": "Video analyst not available."}
+    return {"summary": _video_analyst.get_summary()}
+
+
+async def analyze_frame(question: str) -> dict:
+    """Analyze the current camera frame to answer a specific visual question.
+
+    Use this for questions about what animals look like, their physical condition,
+    or anything requiring visual inspection. Takes a few seconds to process.
+    """
+    if _video_analyst is None:
+        logger.warning("analyze_frame called but video analyst not initialized")
+        return {"analysis": "Video analyst not available."}
+    result = await _video_analyst.analyze(question)
+    return {"analysis": result}
+
+
 # ── Exported tool list (used by root agent in main.py) ──
 
-herd_tools = [search_entity_history, get_herd_stats, find_by_description, get_zone_history]
+herd_tools = [
+    search_entity_history, get_herd_stats, find_by_description, get_zone_history,
+    get_scene_summary, analyze_frame,
+]
 
 
 # ── Future Agent Scaffold (v2 — system of records) ──
