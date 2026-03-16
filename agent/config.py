@@ -34,6 +34,11 @@ class Settings(BaseSettings):
     gemini_model: str = "gemini-3-flash-preview"
     enable_analyst_subagent: bool = False  # v2: Gemini 3 sub-agent for deep analysis
 
+    # Video Analyst
+    video_analyst_background_model: str = "gemini-3-flash-preview"
+    video_analyst_on_demand_model: str = "gemini-3-pro-preview"
+    video_analyst_summary_interval_s: float = 30.0
+
     # Zone config (frame-relative percentages)
     zone_config: dict = {
         "feed_area": {"x1": 0.0, "y1": 0.0, "x2": 0.3, "y2": 0.5},
