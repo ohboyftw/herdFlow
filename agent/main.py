@@ -235,14 +235,8 @@ async def entrypoint(ctx: JobContext) -> None:
         ),
         output_audio_transcription=genai_types.AudioTranscriptionConfig(),
         input_audio_transcription=genai_types.AudioTranscriptionConfig(),
-        # Faster turn-taking: reduce silence wait before Gemini responds
-        realtime_input_config=genai_types.RealtimeInputConfig(
-            automatic_activity_detection=genai_types.AutomaticActivityDetection(
-                end_of_speech_sensitivity="END_SENSITIVITY_HIGH",
-                silence_duration_ms=500,
-                start_of_speech_sensitivity="START_SENSITIVITY_HIGH",
-            ),
-        ),
+        # VAD: use defaults — HIGH sensitivity was causing missed input
+        # Default silence_duration is ~1000ms, which is more reliable
         # Context compression — use empty SlidingWindow() (default params).
         # Passing target_tokens causes 1008; defaults work per Google docs.
         # Without this: audio-only sessions limited to 15 min.
@@ -435,7 +429,7 @@ async def video_publish_loop(
     video_path: str,
     video_src: VideoSource,
     shared_frame: dict[str, np.ndarray | None],
-    target_fps: float = 10.0,
+    target_fps: float = 5.0,
 ) -> None:
     """Publish video frames to LiveKit at smooth FPS, share latest with perception."""
     source = FileVideoSource(path=video_path, target_fps=target_fps)
