@@ -342,9 +342,13 @@ async def entrypoint(ctx: JobContext) -> None:
     asyncio.create_task(audio_input_bridge())
     asyncio.create_task(audio_output_bridge())
     asyncio.create_task(
-        perception_loop(ctx, scene_builder, video_source, video_analyst=video_analyst, video_src=video_src)
+        perception_loop(ctx, scene_builder, video_source, video_analyst=video_analyst)
     )
     asyncio.create_task(video_analyst.run_background_loop())
+    if video_source is not None:
+        asyncio.create_task(
+            video_publish_loop(settings.demo_video_path, video_src)
+        )
 
     # Send initial greeting request
     live_queue.send_content(
@@ -371,9 +375,8 @@ async def perception_loop(
     builder: SceneGraphBuilder,
     video_source: FileVideoSource | None = None,
     video_analyst: VideoAnalyst | None = None,
-    video_src: VideoSource | None = None,
 ) -> None:
-    """Run perception pipeline on video frames, feed VideoAnalyst, publish to LiveKit."""
+    """Run perception pipeline on video frames and feed VideoAnalyst."""
     frame_id = 0
     frame_iter = video_source.frames() if video_source else None
 
@@ -387,13 +390,6 @@ async def perception_loop(
         sg = await builder.process_frame(frame, frame_id)
         if video_analyst is not None:
             video_analyst.update(frame, sg)
-
-        # Publish frame to LiveKit so React frontend can display video
-        if video_src is not None:
-            h, w = frame.shape[:2]
-            lk_frame = VideoFrame(w, h, VideoBufferType.RGB24, frame.tobytes())
-            video_src.capture_frame(lk_frame)
-
 
         # Publish to data channels
         try:
@@ -423,6 +419,25 @@ async def perception_loop(
             logger.debug("Data channel publish failed")
 
         await asyncio.sleep(2.0)
+
+
+async def video_publish_loop(
+    video_path: str,
+    video_src: VideoSource,
+    target_fps: float = 10.0,
+) -> None:
+    """Publish video frames to LiveKit at smooth FPS, independent of perception."""
+    source = FileVideoSource(path=video_path, target_fps=target_fps)
+    frame_iter = source.frames()
+    interval = 1.0 / target_fps
+    logger.info("[VIDEO] Publishing at ~%.0f FPS from %s", target_fps, video_path)
+
+    while True:
+        frame = await asyncio.to_thread(next, frame_iter)
+        h, w = frame.shape[:2]
+        lk_frame = VideoFrame(w, h, VideoBufferType.RGB24, frame.tobytes())
+        video_src.capture_frame(lk_frame)
+        await asyncio.sleep(interval)
 
 
 if __name__ == "__main__":
