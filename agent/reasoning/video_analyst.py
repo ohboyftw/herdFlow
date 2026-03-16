@@ -133,8 +133,7 @@ class VideoAnalyst:
 
                 logger.info("[ANALYST] Calling %s with %d byte JPEG...", self.background_model, len(jpeg))
                 response = await asyncio.wait_for(
-                    asyncio.to_thread(
-                        self._get_client().models.generate_content,
+                    self._get_client().aio.models.generate_content(
                         model=self.background_model,
                         contents=[
                             types.Content(
@@ -190,8 +189,7 @@ class VideoAnalyst:
 
             from google.genai import types
 
-            response = await asyncio.to_thread(
-                self._get_client().models.generate_content,
+            response = await self._get_client().aio.models.generate_content(
                 model=self.on_demand_model,
                 contents=[
                     types.Content(
