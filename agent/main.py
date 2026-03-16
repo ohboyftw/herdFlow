@@ -239,7 +239,7 @@ async def entrypoint(ctx: JobContext) -> None:
         realtime_input_config=genai_types.RealtimeInputConfig(
             automatic_activity_detection=genai_types.AutomaticActivityDetection(
                 end_of_speech_sensitivity="END_SENSITIVITY_HIGH",
-                silence_duration_ms=300,
+                silence_duration_ms=500,
                 start_of_speech_sensitivity="START_SENSITIVITY_HIGH",
             ),
         ),
