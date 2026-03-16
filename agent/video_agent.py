@@ -163,18 +163,36 @@ async def perception_loop(
 async def publish_analyst_data(room: Room, video_analyst: VideoAnalyst) -> None:
     """Publish analyst summary and annotations after each background cycle."""
     while True:
-        await asyncio.sleep(video_analyst.summary_interval_s + 5.0)
+        # Publish slightly after background summary completes
+        await asyncio.sleep(video_analyst.summary_interval_s + 2.0)
         try:
+            summary = video_analyst.get_summary()
             await room.local_participant.publish_data(
-                json.dumps({"summary": video_analyst.get_summary()}).encode(),
+                json.dumps({"summary": summary}).encode(),
                 topic="analyst_summary",
             )
             await room.local_participant.publish_data(
                 json.dumps({"annotations": video_analyst.entity_annotations}).encode(),
                 topic="analyst_annotations",
             )
-        except Exception:  # noqa: BLE001
-            logger.debug("Failed to publish analyst data")
+            logger.info("[VIDEO] Published analyst_summary + annotations to data channels")
+        except Exception:
+            logger.exception("[VIDEO] Failed to publish analyst data")
+
+
+async def publish_initial_scene(room: Room, video_analyst: VideoAnalyst) -> None:
+    """Publish initial scene data as soon as first perception frame is processed."""
+    # Wait for first summary to be available
+    for _ in range(30):  # up to 30s
+        await asyncio.sleep(1.0)
+        if video_analyst.latest_scene_graph is not None:
+            summary = video_analyst._format_scene_graph(video_analyst.latest_scene_graph)
+            await room.local_participant.publish_data(
+                json.dumps({"summary": summary}).encode(),
+                topic="analyst_summary",
+            )
+            logger.info("[VIDEO] Published initial scene summary")
+            return
 
 
 async def handle_analyst_request(
@@ -284,6 +302,7 @@ async def main() -> None:
         ),
         asyncio.create_task(video_analyst.run_background_loop()),
         asyncio.create_task(publish_analyst_data(room, video_analyst)),
+        asyncio.create_task(publish_initial_scene(room, video_analyst)),
     ]
     if video_source is not None:
         tasks.append(
