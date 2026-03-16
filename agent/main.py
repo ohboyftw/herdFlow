@@ -243,12 +243,10 @@ async def entrypoint(ctx: JobContext) -> None:
                 start_of_speech_sensitivity="START_SENSITIVITY_HIGH",
             ),
         ),
-        # Context compression — without this, audio tokens fill the window and session drops
-        context_window_compression=genai_types.ContextWindowCompressionConfig(
-            sliding_window=genai_types.SlidingWindow(
-                target_tokens=100_000,
-            ),
-        ),
+        # NOTE: context_window_compression disabled — causes 1008 error on
+        # gemini-2.5-flash-native-audio-preview-12-2025. Sessions will drop
+        # after ~3-4 min when audio tokens fill the context window.
+        # Re-enable when model supports SlidingWindow compression.
     )
 
     # Wait for participant
