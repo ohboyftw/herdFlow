@@ -20,9 +20,11 @@ class FileVideoSource:
     def __init__(self, path: str | Path, target_fps: float = 2.0) -> None:
         self._path = Path(path)
         self._target_fps = target_fps
-        self._container: av.container.InputContainer | None = None
+        self._container: av.InputContainer | None = None  # type: ignore[type-arg]
         self._stream_fps: float = 30.0
         self._skip: int = 1  # read every Nth frame
+
+        self.loop_count: int = 0
 
         if not self._path.exists():
             msg = f"Video file not found: {self._path}"
@@ -31,6 +33,7 @@ class FileVideoSource:
     def open(self) -> None:
         """Open the video file and compute frame skip rate."""
         self._container = av.open(str(self._path))
+        assert self._container is not None
         stream = self._container.streams.video[0]
         self._stream_fps = float(stream.average_rate)
         self._skip = max(1, round(self._stream_fps / self._target_fps))

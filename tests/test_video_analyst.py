@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from agent.models import SceneGraph, HerdSummary
+from agent.models import HerdSummary, SceneGraph
 from agent.reasoning.video_analyst import VideoAnalyst
 
 
@@ -60,7 +60,7 @@ class TestVideoAnalystSummary:
     def test_format_scene_graph_fallback(self) -> None:
         analyst = VideoAnalyst()
         sg = _make_scene_graph(6)
-        text = analyst._format_scene_graph(sg)
+        text = analyst.format_scene_graph(sg)
         assert "6" in text
         assert "standing" in text.lower()
 

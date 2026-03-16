@@ -95,7 +95,7 @@ if test_html.exists():
         content,
     )
     test_html.write_text(new_content, encoding="utf-8")
-    print(f"  Token patched into test.html")
+    print("  Token patched into test.html")
 else:
     print(f"  WARNING: {test_html} not found")
 
@@ -105,18 +105,18 @@ fe_env.write_text(
     f"VITE_LIVEKIT_URL={livekit_url}\nVITE_LIVEKIT_TOKEN={farmer_jwt}\n",
     encoding="utf-8",
 )
-print(f"  Token written to frontend/.env")
+print("  Token written to frontend/.env")
 
-print(f"\n=== E2E Ready ===")
+print("\n=== E2E Ready ===")
 print(f"  Room:     {room_name}")
 print(f"  URL:      {livekit_url}")
 print(f"  Farmer:   {farmer_jwt[:50]}...")
 print(f"  Video:    {video_jwt[:50]}...")
-print(f"  React:    cd frontend && npm run dev")
+print("  React:    cd frontend && npm run dev")
 print(f"  test.html: file:///{test_html}")
-print(f"\n  Start React frontend in another terminal, then talk.")
+print("\n  Start React frontend in another terminal, then talk.")
 print(f"  Logs: {ROOT / 'logs' / 'herdflow.log'}")
-print(f"\n  Starting agent...\n")
+print("\n  Starting agent...\n")
 
 # ── Set env vars for the launcher ──
 os.environ["VIDEO_AGENT_TOKEN"] = video_jwt

@@ -31,6 +31,17 @@ class Tracker:
         self._next_id = 1
         self._entity_state: dict[str, TrackedEntity] = {}
 
+    def reset(self) -> None:
+        """Reset tracker state — call when video loops or scene changes."""
+        self._tracker = sv.ByteTrack(
+            track_activation_threshold=0.3,
+            minimum_consecutive_frames=1,
+        )
+        self._id_map.clear()
+        self._next_id = 1
+        self._entity_state.clear()
+        logger.info("[B2->B3] tracker: RESET (scene change)")
+
     def _get_track_id(self, bt_id: int) -> str:
         if bt_id not in self._id_map:
             self._id_map[bt_id] = f"{self.entity_id_prefix}{self._next_id:03d}"
@@ -61,6 +72,8 @@ class Tracker:
         now = datetime.now(UTC)
         class_name = detections[0].class_name if detections else "cow"
 
+        if tracked.tracker_id is None or tracked.confidence is None:
+            return []
         for i in range(len(tracked)):
             bt_id = int(tracked.tracker_id[i])
             track_id = self._get_track_id(bt_id)

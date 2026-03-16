@@ -44,10 +44,14 @@ def download(url: str, name: str | None = None) -> Path:
     subprocess.run(
         [
             "yt-dlp",
-            "-f", "bestvideo[height<=720]+bestaudio/best[height<=720]",
-            "--merge-output-format", "mp4",
-            "--postprocessor-args", "ffmpeg:-vf scale=1280:720",
-            "-o", str(output),
+            "-f",
+            "bestvideo[height<=720]+bestaudio/best[height<=720]",
+            "--merge-output-format",
+            "mp4",
+            "--postprocessor-args",
+            "ffmpeg:-vf scale=1280:720",
+            "-o",
+            str(output),
             url,
         ],
         check=True,

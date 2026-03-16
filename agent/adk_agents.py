@@ -23,6 +23,16 @@ from typing import TYPE_CHECKING
 
 from google.adk.agents import Agent
 
+from agent.models import (
+    BehaviorRecord,
+    DescriptionMatch,
+    DescriptionSearchResult,
+    EntityHistory,
+    HerdStats,
+    ZoneHistory,
+    ZoneVisit,
+)
+
 if TYPE_CHECKING:
     from agent.reasoning.analyst_bridge import AnalystBridge
     from agent.reasoning.video_analyst import VideoAnalyst
@@ -44,15 +54,6 @@ def set_analyst_bridge(bridge: AnalystBridge) -> None:
     global _analyst_bridge
     _analyst_bridge = bridge
 
-from agent.models import (
-    BehaviorRecord,
-    DescriptionMatch,
-    DescriptionSearchResult,
-    EntityHistory,
-    HerdStats,
-    ZoneHistory,
-    ZoneVisit,
-)
 
 # ── Tool functions (self-contained mock data, no livekit imports) ──
 
@@ -167,8 +168,12 @@ async def analyze_frame(question: str) -> dict:
 # ── Exported tool list (used by root agent in main.py) ──
 
 herd_tools = [
-    search_entity_history, get_herd_stats, find_by_description, get_zone_history,
-    get_scene_summary, analyze_frame,
+    search_entity_history,
+    get_herd_stats,
+    find_by_description,
+    get_zone_history,
+    get_scene_summary,
+    analyze_frame,
 ]
 
 

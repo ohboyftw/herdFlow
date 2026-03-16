@@ -73,6 +73,8 @@ _ZONE_DETECTION_PROMPT = (
 class VideoAnalyst:
     """Async video analysis — background summaries + on-demand deep analysis."""
 
+    DEFAULT_SUMMARY = "No video feed available yet."
+
     def __init__(
         self,
         background_model: str = "gemini-3-flash-preview",
@@ -85,7 +87,7 @@ class VideoAnalyst:
 
         self.latest_frame: np.ndarray | None = None
         self.latest_scene_graph: SceneGraph | None = None
-        self.latest_summary: str = "No video feed available yet."
+        self.latest_summary: str = self.DEFAULT_SUMMARY
         self._analyzing: bool = False
         self._last_analysis: str = ""
         self._client = None  # Lazy init
@@ -93,10 +95,11 @@ class VideoAnalyst:
         self._zones_detected: bool = False
         self.entity_annotations: dict[str, dict] = {}  # track_id → annotation
 
-    def _get_client(self):
+    def _get_client(self):  # type: ignore[no-untyped-def]
         """Lazy-init the genai client."""
         if self._client is None:
-            from google import genai
+            from google import genai  # type: ignore[attr-defined]
+
             self._client = genai.Client()
         return self._client
 
@@ -109,7 +112,7 @@ class VideoAnalyst:
         """Return the latest summary (instant, no API call)."""
         return self.latest_summary
 
-    def _format_scene_graph(self, sg: SceneGraph) -> str:
+    def format_scene_graph(self, sg: SceneGraph) -> str:
         """Format scene graph as human-readable text fallback."""
         hs = sg.herd_summary
         parts = [
@@ -120,17 +123,14 @@ class VideoAnalyst:
         if sg.active_alerts:
             alerts = [f"{a.type}:{a.entity_track_id}" for a in sg.active_alerts]
             parts.append(f"Active alerts: {', '.join(alerts)}.")
-        entities = [
-            f"{e.track_id}: {e.behavior} in {e.zone}"
-            for e in sg.tracked_entities
-        ]
+        entities = [f"{e.track_id}: {e.behavior} in {e.zone}" for e in sg.tracked_entities]
         if entities:
             parts.append(f"Entities: {'; '.join(entities)}")
         return " ".join(parts)
 
     def _encode_frame(self, frame: np.ndarray, quality: int = 40) -> bytes:
         """Encode numpy frame as JPEG bytes, resized to 640x360."""
-        img = Image.fromarray(frame).resize((640, 360), Image.LANCZOS)
+        img = Image.fromarray(frame).resize((640, 360), Image.LANCZOS)  # type: ignore[attr-defined]
         buf = io.BytesIO()
         img.save(buf, format="JPEG", quality=quality)
         return buf.getvalue()
@@ -157,9 +157,7 @@ class VideoAnalyst:
                 contents=[
                     types.Content(
                         parts=[
-                            types.Part.from_bytes(
-                                data=jpeg, mime_type="image/jpeg"
-                            ),
+                            types.Part.from_bytes(data=jpeg, mime_type="image/jpeg"),
                             types.Part.from_text(text=_ZONE_DETECTION_PROMPT),
                         ]
                     )
@@ -169,9 +167,11 @@ class VideoAnalyst:
 
             self.detected_zones = json.loads(text)
             self._zones_detected = True
-            logger.info("[ANALYST] Detected %d zones: %s",
-                        len(self.detected_zones),
-                        [z["name"] for z in self.detected_zones])
+            logger.info(
+                "[ANALYST] Detected %d zones: %s",
+                len(self.detected_zones),
+                [z["name"] for z in self.detected_zones],
+            )
         except Exception:
             logger.exception("[ANALYST] Zone detection failed, using empty zones")
             self.detected_zones = []
@@ -219,9 +219,7 @@ class VideoAnalyst:
             ]
 
             jpeg = self._encode_frame(self.latest_frame, quality=60)
-            prompt = _ANNOTATION_PROMPT.format(
-                entities_json=json.dumps(entity_data, indent=2)
-            )
+            prompt = _ANNOTATION_PROMPT.format(entities_json=json.dumps(entity_data, indent=2))
 
             response = await asyncio.wait_for(
                 self._get_client().aio.models.generate_content(
@@ -229,9 +227,7 @@ class VideoAnalyst:
                     contents=[
                         types.Content(
                             parts=[
-                                types.Part.from_bytes(
-                                    data=jpeg, mime_type="image/jpeg"
-                                ),
+                                types.Part.from_bytes(data=jpeg, mime_type="image/jpeg"),
                                 types.Part.from_text(text=prompt),
                             ]
                         )
@@ -273,15 +269,15 @@ class VideoAnalyst:
         )
         while True:
             await asyncio.sleep(self.summary_interval_s)
-            logger.info("[ANALYST] Background tick — frame=%s, sg=%s",
-                        self.latest_frame is not None,
-                        self.latest_scene_graph is not None)
+            logger.info(
+                "[ANALYST] Background tick — frame=%s, sg=%s",
+                self.latest_frame is not None,
+                self.latest_scene_graph is not None,
+            )
             try:
                 if self.latest_frame is None:
                     if self.latest_scene_graph is not None:
-                        self.latest_summary = self._format_scene_graph(
-                            self.latest_scene_graph
-                        )
+                        self.latest_summary = self.format_scene_graph(self.latest_scene_graph)
                     else:
                         self.latest_summary = "No video feed available."
                     continue
@@ -296,16 +292,16 @@ class VideoAnalyst:
 
                 from google.genai import types
 
-                logger.info("[ANALYST] Calling %s with %d byte JPEG...", self.background_model, len(jpeg))
+                logger.info(
+                    "[ANALYST] Calling %s with %d byte JPEG...", self.background_model, len(jpeg)
+                )
                 response = await asyncio.wait_for(
                     self._get_client().aio.models.generate_content(
                         model=self.background_model,
                         contents=[
                             types.Content(
                                 parts=[
-                                    types.Part.from_bytes(
-                                        data=jpeg, mime_type="image/jpeg"
-                                    ),
+                                    types.Part.from_bytes(data=jpeg, mime_type="image/jpeg"),
                                     types.Part.from_text(text=prompt),
                                 ]
                             )
@@ -313,7 +309,7 @@ class VideoAnalyst:
                     ),
                     timeout=25.0,
                 )
-                self.latest_summary = response.text or self._format_scene_graph(
+                self.latest_summary = response.text or self.format_scene_graph(
                     self.latest_scene_graph
                 )
                 logger.info("[ANALYST] Background summary: %s", self.latest_summary[:100])
@@ -324,16 +320,14 @@ class VideoAnalyst:
             except Exception:
                 logger.exception("[ANALYST] Background summary failed, using fallback")
                 if self.latest_scene_graph is not None:
-                    self.latest_summary = self._format_scene_graph(
-                        self.latest_scene_graph
-                    )
+                    self.latest_summary = self.format_scene_graph(self.latest_scene_graph)
 
     async def analyze(self, question: str) -> str:
         """On-demand deep analysis of current frame via Gemini 3 Pro."""
         if self.latest_frame is None:
             fallback = ""
             if self.latest_scene_graph is not None:
-                fallback = self._format_scene_graph(self.latest_scene_graph)
+                fallback = self.format_scene_graph(self.latest_scene_graph)
             return f"No video feed available. Scene data: {fallback}"
 
         if self._analyzing:
@@ -351,9 +345,7 @@ class VideoAnalyst:
                 if self.latest_scene_graph
                 else "{}"
             )
-            prompt = _ON_DEMAND_PROMPT.format(
-                question=question, scene_json=scene_json
-            )
+            prompt = _ON_DEMAND_PROMPT.format(question=question, scene_json=scene_json)
 
             from google.genai import types
 
@@ -362,9 +354,7 @@ class VideoAnalyst:
                 contents=[
                     types.Content(
                         parts=[
-                            types.Part.from_bytes(
-                                data=jpeg, mime_type="image/jpeg"
-                            ),
+                            types.Part.from_bytes(data=jpeg, mime_type="image/jpeg"),
                             types.Part.from_text(text=prompt),
                         ]
                     )
@@ -379,7 +369,7 @@ class VideoAnalyst:
             if self.latest_scene_graph is not None:
                 return (
                     f"Visual analysis failed. Scene data: "
-                    f"{self._format_scene_graph(self.latest_scene_graph)}"
+                    f"{self.format_scene_graph(self.latest_scene_graph)}"
                 )
             return "Visual analysis failed and no scene data available."
         finally:

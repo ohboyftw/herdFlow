@@ -98,15 +98,17 @@ class Alert(BaseModel):
 
 class EntityAnnotation(BaseModel):
     """Rich annotation from Gemini visual analyst, keyed by track_id."""
+
     track_id: str
-    label: str = ""            # "brown cow, standing calmly"
-    behavior: str = ""         # Gemini's behavior classification
-    health_notes: str = ""     # "appears healthy" or concern
+    label: str = ""  # "brown cow, standing calmly"
+    behavior: str = ""  # Gemini's behavior classification
+    health_notes: str = ""  # "appears healthy" or concern
     confidence: float = 0.0
 
 
 class DetectedZone(BaseModel):
     """Zone detected by vision analyst from the actual video frame."""
+
     name: str
     x1: float  # normalized 0-1
     y1: float
@@ -226,8 +228,8 @@ class OverlayBox(BaseModel):
     bbox: list[int]
     behavior: str
     flags: list[str]
-    label: str = ""          # Gemini visual description (e.g. "brown cow, lying calmly")
-    health_notes: str = ""   # Gemini health assessment
+    label: str = ""  # Gemini visual description (e.g. "brown cow, lying calmly")
+    health_notes: str = ""  # Gemini health assessment
 
 
 class OverlayData(BaseModel):

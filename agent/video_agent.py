@@ -27,9 +27,7 @@ if _env_file.exists():
 # Log file — separate from voice agent
 _log_dir = Path(__file__).resolve().parent.parent / "logs"
 _log_dir.mkdir(exist_ok=True)
-_file_handler = logging.FileHandler(
-    _log_dir / "herdflow-video.log", mode="a", encoding="utf-8"
-)
+_file_handler = logging.FileHandler(_log_dir / "herdflow-video.log", mode="a", encoding="utf-8")
 _file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)-5s %(name)s  %(message)s"))
 _file_handler.setLevel(logging.DEBUG)
 logging.getLogger().addHandler(_file_handler)
@@ -45,8 +43,8 @@ for _name in ("asyncio", "urllib3", "httpcore", "httpx", "google", "grpc"):
 logging.getLogger("herdflow").setLevel(logging.DEBUG)
 logging.getLogger("agent").setLevel(logging.DEBUG)
 
-import numpy as np
-from livekit.rtc import (
+import numpy as np  # noqa: E402
+from livekit.rtc import (  # noqa: E402
     LocalVideoTrack,
     Room,
     VideoBufferType,
@@ -54,14 +52,14 @@ from livekit.rtc import (
     VideoSource,
 )
 
-from agent.alerts.rules import AlertRuleEngine
-from agent.config import settings
-from agent.models import OverlayBox, OverlayData
-from agent.perception.detector import MockDetector
-from agent.perception.scene_graph import SceneGraphBuilder
-from agent.perception.tracker import Tracker
-from agent.perception.video_source import FileVideoSource
-from agent.reasoning.video_analyst import VideoAnalyst
+from agent.alerts.rules import AlertRuleEngine  # noqa: E402
+from agent.config import settings  # noqa: E402
+from agent.models import OverlayBox, OverlayData  # noqa: E402
+from agent.perception.detector import MockDetector  # noqa: E402
+from agent.perception.scene_graph import SceneGraphBuilder  # noqa: E402
+from agent.perception.tracker import Tracker  # noqa: E402
+from agent.perception.video_source import FileVideoSource  # noqa: E402
+from agent.reasoning.video_analyst import VideoAnalyst  # noqa: E402
 
 logger = logging.getLogger("herdflow.video_agent")
 
@@ -138,14 +136,16 @@ async def perception_loop(
             boxes = []
             for e in sg.tracked_entities:
                 ann = video_analyst.get_annotation(e.track_id)
-                boxes.append(OverlayBox(
-                    track_id=e.track_id,
-                    bbox=e.bbox,
-                    behavior=ann.get("behavior", e.behavior) if ann else e.behavior,
-                    flags=e.flags,
-                    label=ann.get("label", "") if ann else "",
-                    health_notes=ann.get("health_notes", "") if ann else "",
-                ))
+                boxes.append(
+                    OverlayBox(
+                        track_id=e.track_id,
+                        bbox=e.bbox,
+                        behavior=ann.get("behavior", e.behavior) if ann else e.behavior,
+                        flags=e.flags,
+                        label=ann.get("label", "") if ann else "",
+                        health_notes=ann.get("health_notes", "") if ann else "",
+                    )
+                )
             overlay = OverlayData(frame_id=frame_id, boxes=boxes)
             await room.local_participant.publish_data(
                 overlay.model_dump_json().encode(), topic="overlay"
@@ -171,8 +171,11 @@ async def publish_analyst_data(room: Room, video_analyst: VideoAnalyst) -> None:
         try:
             # Use Gemini summary if available, otherwise format scene graph
             summary = video_analyst.get_summary()
-            if summary == "No video feed available yet." and video_analyst.latest_scene_graph is not None:
-                summary = video_analyst._format_scene_graph(video_analyst.latest_scene_graph)
+            if (
+                summary == video_analyst.DEFAULT_SUMMARY
+                and video_analyst.latest_scene_graph is not None
+            ):
+                summary = video_analyst.format_scene_graph(video_analyst.latest_scene_graph)
 
             # Only publish if summary changed
             if summary and summary != last_summary:
@@ -207,9 +210,7 @@ async def handle_analyst_request(
 
         answer = await video_analyst.analyze(question)
         response = json.dumps({"answer": answer, "request_id": request_id})
-        await room.local_participant.publish_data(
-            response.encode(), topic="analyst_response"
-        )
+        await room.local_participant.publish_data(response.encode(), topic="analyst_response")
         logger.info("[ANALYST] Response sent for %s", request_id)
     except Exception:
         logger.exception("[ANALYST] Failed to handle analyst request")
@@ -289,15 +290,15 @@ async def main() -> None:
 
     # Subscribe to analyst_request data channel
     @room.on("data_received")
-    def on_data(payload: bytes, participant, kind, topic: str) -> None:  # noqa: ANN001
+    def on_data(packet) -> None:  # noqa: ANN001
+        topic = getattr(packet, "topic", None)
         if topic == "analyst_request":
-            asyncio.create_task(handle_analyst_request(room, video_analyst, payload))
+            data = getattr(packet, "data", b"")
+            asyncio.create_task(handle_analyst_request(room, video_analyst, data))
 
     # Start background tasks
     tasks = [
-        asyncio.create_task(
-            perception_loop(room, scene_builder, shared_frame, video_analyst)
-        ),
+        asyncio.create_task(perception_loop(room, scene_builder, shared_frame, video_analyst)),
         asyncio.create_task(video_analyst.run_background_loop()),
         asyncio.create_task(publish_analyst_data(room, video_analyst)),
     ]

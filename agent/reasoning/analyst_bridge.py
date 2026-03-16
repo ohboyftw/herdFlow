@@ -11,47 +11,57 @@ import json
 import logging
 import time
 import uuid
+from typing import Any
 
 logger = logging.getLogger("herdflow.analyst_bridge")
+
+DEFAULT_SUMMARY = "No video feed available yet."
 
 
 class AnalystBridge:
     """Cache + request/response bridge for analyst data from video process."""
 
     def __init__(self, stale_threshold_s: float = 60.0) -> None:
-        self.latest_summary: str = "No video feed available yet."
+        self.latest_summary: str = DEFAULT_SUMMARY
         self.latest_annotations: dict[str, dict] = {}
         self._last_update_time: float = 0.0
+        self._has_analyst_summary: bool = False
         self._stale_threshold_s = stale_threshold_s
         self._pending_requests: dict[str, asyncio.Future[str]] = {}
         self._room = None
 
-    async def start(self, room) -> None:
+    async def start(self, room: Any) -> None:
         """Subscribe to analyst data channels from video process."""
         self._room = room
         room.on("data_received", self._on_data_received)
         logger.info("[BRIDGE] AnalystBridge started, listening for analyst channels")
 
-    def _on_data_received(self, packet) -> None:
+    def _on_data_received(self, packet: Any) -> None:
         """Handle LiveKit DataPacket — dispatch by topic."""
         topic = getattr(packet, "topic", None)
         data = getattr(packet, "data", b"")
         if not topic:
             return
+        try:
+            text = data.decode("utf-8")
+        except (UnicodeDecodeError, AttributeError):
+            logger.warning("[BRIDGE] Failed to decode data for topic=%s", topic)
+            return
         if topic == "analyst_summary":
-            self._on_summary_received(data.decode("utf-8"))
+            self._on_summary_received(text)
         elif topic == "analyst_annotations":
-            self._on_annotations_received(data.decode("utf-8"))
+            self._on_annotations_received(text)
         elif topic == "analyst_response":
-            self._on_response_received(data.decode("utf-8"))
+            self._on_response_received(text)
         elif topic == "scene_graph":
-            self._on_scene_graph_received(data.decode("utf-8"))
+            self._on_scene_graph_received(text)
 
     def _on_summary_received(self, data: str) -> None:
         try:
             parsed = json.loads(data)
             self.latest_summary = parsed.get("summary", self.latest_summary)
             self._last_update_time = time.monotonic()
+            self._has_analyst_summary = True
             logger.debug("[BRIDGE] Summary updated: %s", self.latest_summary[:80])
         except (json.JSONDecodeError, KeyError):
             logger.warning("[BRIDGE] Failed to parse analyst_summary")
@@ -59,7 +69,10 @@ class AnalystBridge:
     def _on_annotations_received(self, data: str) -> None:
         try:
             parsed = json.loads(data)
-            self.latest_annotations = parsed.get("annotations", {})
+            new_annotations = parsed.get("annotations", {})
+            if new_annotations == self.latest_annotations:
+                return  # No change, skip update
+            self.latest_annotations = new_annotations
             self._last_update_time = time.monotonic()
             logger.debug(
                 "[BRIDGE] Annotations updated: %d entities",
@@ -70,8 +83,8 @@ class AnalystBridge:
 
     def _on_scene_graph_received(self, data: str) -> None:
         """Build a fallback summary from scene_graph when no analyst_summary yet."""
-        if self._last_update_time > 0:
-            return  # already have analyst data, don't overwrite
+        if self._has_analyst_summary:
+            return  # real analyst summary already received, don't overwrite
         try:
             parsed = json.loads(data)
             hs = parsed.get("herd_summary", {})
@@ -86,7 +99,7 @@ class AnalystBridge:
                 self._last_update_time = time.monotonic()
                 logger.info("[BRIDGE] Scene graph fallback: %s", self.latest_summary)
         except (json.JSONDecodeError, KeyError):
-            pass
+            logger.warning("[BRIDGE] Failed to parse scene_graph fallback")
 
     def _on_response_received(self, data: str) -> None:
         try:
@@ -128,9 +141,7 @@ class AnalystBridge:
             await self._room.local_participant.publish_data(
                 payload.encode(), topic="analyst_request"
             )
-            logger.info(
-                "[BRIDGE] Sent analyst_request %s: %s", request_id, question[:50]
-            )
+            logger.info("[BRIDGE] Sent analyst_request %s: %s", request_id, question[:50])
 
             result = await asyncio.wait_for(future, timeout=timeout_s)
             return result

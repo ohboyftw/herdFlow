@@ -69,13 +69,11 @@ def main() -> None:
 
     # Spawn video agent (uses raw Room.connect)
     video_cmd = [sys.executable, "-m", "agent.video_agent"]
-    video_proc = subprocess.Popen(
-        video_cmd, cwd=str(Path(__file__).parent.parent), env=video_env
-    )
+    video_proc = subprocess.Popen(video_cmd, cwd=str(Path(__file__).parent.parent), env=video_env)
 
     print(f"  Voice agent PID: {voice_proc.pid}")
     print(f"  Video agent PID: {video_proc.pid}")
-    print(f"  Press Ctrl+C to stop both.\n")
+    print("  Press Ctrl+C to stop both.\n")
 
     # Cleanup: kill both on exit
     def cleanup() -> None:

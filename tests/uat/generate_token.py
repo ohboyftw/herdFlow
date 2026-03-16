@@ -34,7 +34,8 @@ except ImportError:
     print("ERROR: livekit-api not installed. Run: uv add livekit-api")
     sys.exit(1)
 
-import time
+import time  # noqa: E402
+
 room_name = f"hf-e2e-{int(time.time())}"
 
 token = (
@@ -55,10 +56,10 @@ token = (
 
 jwt = token.to_jwt()
 
-print(f"\n=== LiveKit E2E Test Token ===")
+print("\n=== LiveKit E2E Test Token ===")
 print(f"  Room:     {room_name}")
-print(f"  Identity: farmer")
+print("  Identity: farmer")
 print(f"  URL:      {livekit_url}")
-print(f"  TTL:      6 hours")
+print("  TTL:      6 hours")
 print(f"\n  Token:\n  {jwt}")
-print(f"\n  Paste into test.html TOKEN constant, or use with React frontend.")
+print("\n  Paste into test.html TOKEN constant, or use with React frontend.")
