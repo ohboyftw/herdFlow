@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import numpy as np
 import pytest
 
@@ -13,7 +15,7 @@ def _make_scene_graph(n_entities: int = 3) -> SceneGraph:
     """Create a minimal SceneGraph for testing."""
     return SceneGraph(
         frame_id=1,
-        timestamp="2026-03-16T12:00:00Z",
+        timestamp=datetime(2026, 3, 16, 12, 0, 0, tzinfo=UTC),
         tracked_entities=[],
         active_alerts=[],
         herd_summary=HerdSummary(

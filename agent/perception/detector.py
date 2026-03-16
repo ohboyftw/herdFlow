@@ -97,7 +97,7 @@ class RFDETRDetector:
         """
         import supervision as sv  # type: ignore[import-untyped]
 
-        sv_detections: sv.Detections = self.model.predict(frame, threshold=self.threshold)
+        sv_detections: sv.Detections = self.model.predict(frame, threshold=self.threshold)  # type: ignore[assignment]
 
         detections: list[Detection] = []
         if sv_detections is None or len(sv_detections) == 0:

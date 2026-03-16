@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 if sys.platform == "win32" and hasattr(sys.stdout, "reconfigure"):
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
 
 # Results collector
 results: list[dict] = []

@@ -309,9 +309,12 @@ class VideoAnalyst:
                     ),
                     timeout=25.0,
                 )
-                self.latest_summary = response.text or self.format_scene_graph(
-                    self.latest_scene_graph
+                fallback = (
+                    self.format_scene_graph(self.latest_scene_graph)
+                    if self.latest_scene_graph is not None
+                    else "No scene data available."
                 )
+                self.latest_summary = response.text or fallback
                 logger.info("[ANALYST] Background summary: %s", self.latest_summary[:100])
 
                 # Also annotate individual entities with rich descriptions

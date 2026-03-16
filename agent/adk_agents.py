@@ -35,12 +35,14 @@ from agent.models import (
 
 if TYPE_CHECKING:
     from agent.reasoning.analyst_bridge import AnalystBridge
+    from agent.reasoning.memory import ConversationMemory
     from agent.reasoning.video_analyst import VideoAnalyst
 
 logger = logging.getLogger("herdflow")
 
 _video_analyst: VideoAnalyst | None = None
 _analyst_bridge: AnalystBridge | None = None
+_conversation_memory: ConversationMemory | None = None
 
 
 def set_video_analyst(analyst: VideoAnalyst) -> None:
@@ -53,6 +55,12 @@ def set_analyst_bridge(bridge: AnalystBridge) -> None:
     """Wire the analyst bridge instance for tool access (two-pipe mode)."""
     global _analyst_bridge
     _analyst_bridge = bridge
+
+
+def set_conversation_memory(memory: ConversationMemory) -> None:
+    """Wire conversation memory for tool result capture."""
+    global _conversation_memory
+    _conversation_memory = memory
 
 
 # ── Tool functions (self-contained mock data, no livekit imports) ──
@@ -142,11 +150,17 @@ async def get_scene_summary() -> dict:
     including animal count, postures, and any notable observations.
     """
     if _analyst_bridge is not None:
-        return {"summary": _analyst_bridge.get_summary()}
-    if _video_analyst is not None:
-        return {"summary": _video_analyst.get_summary()}
-    logger.warning("get_scene_summary: no analyst available")
-    return {"summary": "Video analyst not available."}
+        summary = _analyst_bridge.get_summary()
+    elif _video_analyst is not None:
+        summary = _video_analyst.get_summary()
+    else:
+        logger.warning("get_scene_summary: no analyst available")
+        return {"summary": "Video analyst not available."}
+    # Compress for context — keep only first 300 chars in session history
+    short = summary[:300]
+    if _conversation_memory is not None:
+        _conversation_memory.add_observation(short)
+    return {"summary": short}
 
 
 async def analyze_frame(question: str) -> dict:
@@ -157,12 +171,16 @@ async def analyze_frame(question: str) -> dict:
     """
     if _analyst_bridge is not None:
         result = await _analyst_bridge.request_analysis(question)
-        return {"analysis": result}
-    if _video_analyst is not None:
+    elif _video_analyst is not None:
         result = await _video_analyst.analyze(question)
-        return {"analysis": result}
-    logger.warning("analyze_frame: no analyst available")
-    return {"analysis": "Video analyst not available."}
+    else:
+        logger.warning("analyze_frame: no analyst available")
+        return {"analysis": "Video analyst not available."}
+    # Compress for context — keep only first 400 chars in session history
+    short = result[:400]
+    if _conversation_memory is not None:
+        _conversation_memory.add_observation(short)
+    return {"analysis": short}
 
 
 # ── Exported tool list (used by root agent in main.py) ──

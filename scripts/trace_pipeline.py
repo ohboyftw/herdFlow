@@ -39,6 +39,7 @@ async def trace() -> bool:
 
     # 1. Video source
     print("\n[1] Video Source")
+    vs: FileVideoSource | None = None
     try:
         vs = FileVideoSource(settings.demo_video_path, target_fps=2.0)
         frame_gen = vs.frames()
@@ -82,6 +83,7 @@ async def trace() -> bool:
     # 3. Process frames
     print(f"\n[3] Processing {n_frames} frames...")
     prev_sg = None
+    sg = None
     t0 = time.monotonic()
 
     for i in range(n_frames):
@@ -118,6 +120,9 @@ async def trace() -> bool:
 
     # 4. Validate SceneGraph
     print("\n[4] SceneGraph Validation")
+    if sg is None:
+        print("    FAIL: No frames processed, sg is None")
+        return False
     assert sg is not None
     sg_json = sg.model_dump_json()
     sg_size = len(sg_json)
@@ -176,7 +181,8 @@ async def trace() -> bool:
         print("TRACE FAILED — see issues above")
     print("=" * 70)
 
-    vs.close() if hasattr(vs, "close") else None
+    if vs is not None and hasattr(vs, "close"):
+        vs.close()
     return ok
 
 

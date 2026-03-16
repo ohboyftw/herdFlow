@@ -33,7 +33,7 @@ MODELS = [
 
 def pydantic_to_ts_type(python_type: str) -> str:
     """Map Python/Pydantic types to TypeScript types."""
-    mapping = {
+    mapping: dict[str, str] = {
         "string": "string",
         "integer": "number",
         "number": "number",
@@ -64,7 +64,7 @@ NAME_REMAP = {"TrackedEntityModel": "TrackedEntity"}
 def resolve_type(field_schema: dict, defs: dict) -> str:
     """Resolve a JSON Schema field to a TypeScript type."""
     if "$ref" in field_schema:
-        ref_name = field_schema["$ref"].split("/")[-1]
+        ref_name: str = field_schema["$ref"].split("/")[-1]
         return NAME_REMAP.get(ref_name, ref_name)
 
     if "anyOf" in field_schema:

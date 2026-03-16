@@ -117,12 +117,12 @@ export function VoicePanel({ room, transcript }: VoicePanelProps) {
           <span className="w-2 h-2 rounded-full bg-sky-400 animate-pulse" />
           <span className="text-xs text-sky-300">Listening... speak now</span>
           <span className="flex items-end gap-px ml-auto h-3">
-            {[0, 1, 2, 3, 4].map((i) => (
+            {[6, 10, 5, 11, 7].map((h, i) => (
               <span
                 key={i}
                 className="w-0.5 bg-sky-400 rounded-sm animate-pulse"
                 style={{
-                  height: `${4 + Math.random() * 8}px`,
+                  height: `${h}px`,
                   animationDelay: `${i * 0.1}s`,
                   animationDuration: '0.5s',
                 }}

@@ -64,7 +64,7 @@ async def test_layer3_gemini3() -> None:
         )
 
         stream = llm.chat(chat_ctx=ctx)
-        output = await stream.collect()
+        output = await stream.collect()  # type: ignore[attr-defined]
         response_text = output.text_content if hasattr(output, "text_content") else str(output)
 
         elapsed = time.monotonic() - t0
@@ -122,7 +122,7 @@ async def test_layer5_tool_smoke() -> None:
         ctx.add_message(role="user", content="How many cows are there?")
 
         stream = llm.chat(chat_ctx=ctx, tools=[get_cow_count])
-        output = await stream.collect()
+        output = await stream.collect()  # type: ignore[attr-defined]
 
         tool_calls = output.tool_calls if hasattr(output, "tool_calls") else []
         text = output.text_content if hasattr(output, "text_content") else ""

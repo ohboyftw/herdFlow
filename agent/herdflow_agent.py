@@ -14,5 +14,5 @@ class HerdFlowAgent(Agent):
     def __init__(self) -> None:
         super().__init__(
             instructions=STATIC_PROMPT,
-            tools=herd_tools,
+            tools=list(herd_tools),  # type: ignore[arg-type]
         )
