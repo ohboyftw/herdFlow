@@ -74,7 +74,7 @@ from agent.reasoning.video_analyst import VideoAnalyst
 
 logger = logging.getLogger("herdflow")
 
-server = AgentServer()
+server = AgentServer(initialize_process_timeout=60.0)
 
 # Audio config matching Gemini Live API expectations
 INPUT_SAMPLE_RATE = 16000   # Gemini Live expects 16kHz PCM input

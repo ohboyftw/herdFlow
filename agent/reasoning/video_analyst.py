@@ -134,10 +134,8 @@ class VideoAnalyst:
                     contents=[
                         types.Content(
                             parts=[
-                                types.Part.from_image(
-                                    image=types.Blob(
-                                        data=jpeg, mime_type="image/jpeg"
-                                    )
+                                types.Part.from_bytes(
+                                    data=jpeg, mime_type="image/jpeg"
                                 ),
                                 types.Part.from_text(text=prompt),
                             ]
