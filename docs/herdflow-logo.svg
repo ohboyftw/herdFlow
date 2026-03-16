@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 100" width="100%" height="100%">
+  <!-- Base background (slate-900) -->
+  <rect width="100%" height="100%" rx="12" ry="12" fill="#0f172a" />
+
+  <!-- Logo Mark Group -->
+  <g transform="translate(0, 0)">
+    <!-- Stylized Geometric Cattle Silhouette -->
+    <!-- Filled with the dark background color to create depth, outlined in primary Emerald -->
+    <path d="M 36 28 L 50 32 L 64 28 L 84 12 L 74 36 L 66 42 L 56 72 L 44 72 L 34 42 L 26 36 L 16 12 Z"
+          fill="#0f172a"
+          stroke="#34d399"
+          stroke-width="3"
+          stroke-linejoin="round" />
+
+    <!-- Flowing Voice/Signal Waveform (Sky Blue) -->
+    <!-- Passes directly through the geometric head in an interwoven stream -->
+    <path d="M 12 50 Q 31 25 50 50 T 88 50"
+          stroke="#38bdf8"
+          stroke-width="2.5"
+          fill="none"
+          stroke-linecap="round" />
+    <path d="M 12 50 Q 31 75 50 50 T 88 50"
+          stroke="#38bdf8"
+          stroke-width="2.5"
+          fill="none"
+          stroke-linecap="round" />
+
+    <!-- Vision AI "Camera" Lens Core -->
+    <!-- Placed perfectly at the focal intersection (50,50) -->
+    <circle cx="50" cy="50" r="6" fill="#0f172a" />
+    <circle cx="50" cy="50" r="4.5" stroke="#38bdf8" stroke-width="2" fill="none" />
+    <circle cx="50" cy="50" r="1.5" fill="#38bdf8" />
+  </g>
+
+  <!-- Wordmark -->
+  <!-- Centered vertically with the 50px visual midpoint of the icon -->
+  <text x="105" y="66" font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="44" font-weight="600" letter-spacing="-0.02em">
+    <tspan fill="#f1f5f9">Herd</tspan><tspan fill="#34d399">Flow</tspan>
+  </text>
+</svg>
