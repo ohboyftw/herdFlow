@@ -76,14 +76,23 @@ if test_html.exists():
     test_html.write_text(new_content, encoding="utf-8")
     print(f"  Token patched into test.html")
 else:
-    print(f"  WARNING: {test_html} not found, printing token instead")
+    print(f"  WARNING: {test_html} not found")
+
+# ── Patch frontend/.env for React app ──
+fe_env = ROOT / "frontend" / ".env"
+fe_env.write_text(
+    f"VITE_LIVEKIT_URL={livekit_url}\nVITE_LIVEKIT_TOKEN={jwt}\n",
+    encoding="utf-8",
+)
+print(f"  Token written to frontend/.env")
 
 print(f"\n=== E2E Ready ===")
 print(f"  Room:     {room_name}")
 print(f"  URL:      {livekit_url}")
 print(f"  Token:    {jwt[:50]}...")
+print(f"  React:    cd frontend && npm run dev")
 print(f"  test.html: file:///{test_html}")
-print(f"\n  Open test.html in browser, click Connect, then talk.")
+print(f"\n  Start React frontend in another terminal, then talk.")
 print(f"  Logs: {ROOT / 'logs' / 'herdflow.log'}")
 print(f"\n  Starting agent...\n")
 
