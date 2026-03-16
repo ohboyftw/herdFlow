@@ -24,17 +24,25 @@ from typing import TYPE_CHECKING
 from google.adk.agents import Agent
 
 if TYPE_CHECKING:
+    from agent.reasoning.analyst_bridge import AnalystBridge
     from agent.reasoning.video_analyst import VideoAnalyst
 
 logger = logging.getLogger("herdflow")
 
 _video_analyst: VideoAnalyst | None = None
+_analyst_bridge: AnalystBridge | None = None
 
 
 def set_video_analyst(analyst: VideoAnalyst) -> None:
     """Wire the video analyst instance for tool access."""
     global _video_analyst
     _video_analyst = analyst
+
+
+def set_analyst_bridge(bridge: AnalystBridge) -> None:
+    """Wire the analyst bridge instance for tool access (two-pipe mode)."""
+    global _analyst_bridge
+    _analyst_bridge = bridge
 
 from agent.models import (
     BehaviorRecord,
@@ -132,10 +140,12 @@ async def get_scene_summary() -> dict:
     Returns a 2-3 sentence description of what the camera currently shows,
     including animal count, postures, and any notable observations.
     """
-    if _video_analyst is None:
-        logger.warning("get_scene_summary called but video analyst not initialized")
-        return {"summary": "Video analyst not available."}
-    return {"summary": _video_analyst.get_summary()}
+    if _analyst_bridge is not None:
+        return {"summary": _analyst_bridge.get_summary()}
+    if _video_analyst is not None:
+        return {"summary": _video_analyst.get_summary()}
+    logger.warning("get_scene_summary: no analyst available")
+    return {"summary": "Video analyst not available."}
 
 
 async def analyze_frame(question: str) -> dict:
@@ -144,11 +154,14 @@ async def analyze_frame(question: str) -> dict:
     Use this for questions about what animals look like, their physical condition,
     or anything requiring visual inspection. Takes a few seconds to process.
     """
-    if _video_analyst is None:
-        logger.warning("analyze_frame called but video analyst not initialized")
-        return {"analysis": "Video analyst not available."}
-    result = await _video_analyst.analyze(question)
-    return {"analysis": result}
+    if _analyst_bridge is not None:
+        result = await _analyst_bridge.request_analysis(question)
+        return {"analysis": result}
+    if _video_analyst is not None:
+        result = await _video_analyst.analyze(question)
+        return {"analysis": result}
+    logger.warning("analyze_frame: no analyst available")
+    return {"analysis": "Video analyst not available."}
 
 
 # ── Exported tool list (used by root agent in main.py) ──
