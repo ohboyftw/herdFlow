@@ -61,3 +61,4 @@ media/
 # Worktrees
 .worktrees/
 credentials.json
+demo_videos/

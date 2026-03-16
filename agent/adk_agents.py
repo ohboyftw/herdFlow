@@ -1,9 +1,18 @@
-"""HerdFlow multi-agent system using Google Agent Development Kit.
+"""HerdFlow ADK tool functions and future agent scaffold.
 
-Three-agent architecture:
-- Concierge (Gemini 2.5 Flash): Voice interface, speaks to farmer
-- Strategist (Gemini 3 Flash): Scene analysis, tool calls, data queries
-- Monitor (Gemini 3 Flash): Proactive alert surveillance, triggers warnings
+Current (v1 — hackathon):
+    Single root agent (Gemini 2.5 Flash Native Audio) in main.py owns
+    voice + video + tools. These tool functions are used directly by it.
+
+Future (v2 — system of records):
+    Multi-agent split by trust level and latency:
+    - Voice Agent: sees, hears, talks. Low trust (can hallucinate). <1s latency.
+    - Analyst Agent: multi-step temporal analysis across days of data.
+      Medium trust. 5-15s OK (farmer waits knowingly).
+    - Records Agent: write ops (lab results, treatments, vaccinations).
+      High trust (must be correct, auditable). Strict validation.
+    - Embedding Pipeline: NOT an LLM agent. Gemini multimodal embeddings
+      → vector DB → exposes similarity search tool to voice agent.
 """
 
 from __future__ import annotations
@@ -11,7 +20,6 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from google.adk.agents import Agent
-from google.adk.tools.agent_tool import AgentTool
 
 from agent.models import (
     BehaviorRecord,
@@ -22,9 +30,9 @@ from agent.models import (
     ZoneHistory,
     ZoneVisit,
 )
-from agent.reasoning.prompts import STATIC_PROMPT
 
-# ── Tool functions for the Strategist (self-contained, no livekit imports) ──
+
+# ── Tool functions (self-contained mock data, no livekit imports) ──
 
 
 def _t(hour: int, minute: int) -> datetime:
@@ -104,77 +112,79 @@ async def get_zone_history(zone: str, minutes: int = 120) -> dict:
     ).model_dump()
 
 
-# ── Agent Definitions ──
+# ── Exported tool list (used by root agent in main.py) ──
+
+herd_tools = [search_entity_history, get_herd_stats, find_by_description, get_zone_history]
 
 
-def create_strategist() -> Agent:
-    """Strategist — data analysis and tool calls via Gemini 3 Flash."""
+# ── Future Agent Scaffold (v2 — system of records) ──
+#
+# These factories are not wired in yet. They document the planned multi-agent
+# split for when HerdFlow evolves beyond real-time monitoring.
+#
+# Activation criteria:
+#   - Analyst: when TrackingHistory spans days (not just current session)
+#   - Records: when write operations exist (lab results, treatments, vaccinations)
+#   - Embeddings: when Gemini multimodal embeddings are integrated
+
+
+def create_analyst() -> Agent:
+    """Analyst — multi-step temporal analysis via Gemini 3 Flash.
+
+    Activated when the farmer asks questions that span multiple days
+    or require correlating data across sources (behavior + labs + embeddings).
+    The voice agent delegates here and fills the pause conversationally.
+
+    Trust: medium (reasons over data, can be wrong).
+    Latency: 5-15s acceptable (farmer waits knowingly).
+    """
     return Agent(
-        name="strategist",
+        name="analyst",
         model="gemini-3-flash-preview",
         instruction=(
-            "You are HerdFlow's data strategist. You analyze livestock scene data "
-            "and answer detailed questions about herd health, animal history, zone "
-            "occupancy, and feeding patterns.\n\n"
-            "When asked a question, use your tools to query the tracking database. "
-            "Return concise, factual answers with specific numbers. "
-            "Reference animals by track ID (e.g. COW-003).\n\n"
-            "Always include: the specific data point, whether it's concerning, "
-            "and a recommended action if applicable."
+            "You are HerdFlow's veterinary data analyst. You perform deep, "
+            "multi-step analysis across days of animal data.\n\n"
+            "When delegated a question:\n"
+            "1. Use tools to gather relevant data across the time window.\n"
+            "2. Cross-reference behavior patterns with any lab results.\n"
+            "3. Compare against breed-specific baselines.\n"
+            "4. Return a concise analysis with specific numbers, track IDs, "
+            "time ranges, and a recommended triage action.\n\n"
+            "You may need multiple sequential tool calls. Take your time — "
+            "accuracy matters more than speed."
         ),
-        tools=[search_entity_history, get_herd_stats, find_by_description, get_zone_history],
+        tools=herd_tools,  # Future: + lab_tools + embedding_search
         sub_agents=[],
     )
 
 
-def create_monitor(scene_json: str = "{}") -> Agent:
-    """Monitor — proactive alert surveillance via Gemini 3 Flash."""
+def create_records_agent() -> Agent:
+    """Records Agent — validated write operations for system of records.
+
+    Handles all mutations: registering animals, recording lab results,
+    logging treatments, updating vaccination schedules.
+
+    Trust: HIGH (must be correct, auditable). Every write is validated
+    against business rules (drug interactions, withdrawal periods,
+    compliance requirements) before committing.
+
+    Latency: 2-5s acceptable.
+    """
     return Agent(
-        name="monitor",
+        name="records",
         model="gemini-3-flash-preview",
         instruction=(
-            "You are HerdFlow's alert monitor. Analyze the scene graph for health concerns "
-            "and generate brief alert messages.\n\n"
-            "Focus on:\n"
-            "- Animals lying > 4 hours (potential illness)\n"
-            "- High isolation scores > 0.7 (illness or calving)\n"
-            "- Animals not feeding > 4 hours\n"
-            "- Unusual velocity patterns\n\n"
-            "Generate a 1-2 sentence alert ONLY if something needs attention. "
-            "If everything looks normal, respond with 'ALL_CLEAR'.\n\n"
-            f"Current scene:\n```json\n{scene_json}\n```"
+            "You are HerdFlow's records manager. You handle all data entry "
+            "operations with strict validation.\n\n"
+            "Before any write operation:\n"
+            "1. Confirm the animal exists in the registry.\n"
+            "2. Validate all fields against schema constraints.\n"
+            "3. Check for conflicts (drug interactions, duplicate entries).\n"
+            "4. Compute derived fields (withdrawal periods, next due dates).\n"
+            "5. Return a confirmation summary for the voice agent to relay.\n\n"
+            "NEVER skip validation. NEVER write partial records. If any check "
+            "fails, return the specific reason so the farmer can correct it."
         ),
-        tools=[get_herd_stats, search_entity_history],
+        tools=[],  # Future: register_animal, record_lab_result, log_treatment, etc.
         sub_agents=[],
     )
-
-
-def create_concierge(strategist: Agent, scene_json: str = "{}") -> Agent:
-    """Concierge — voice interface to the farmer via Gemini 2.5 Flash."""
-    prompt = STATIC_PROMPT.replace("{scene_graph_json}", scene_json)
-    full_instruction = (
-        prompt + "\n\n"
-        "DELEGATION RULES:\n"
-        "- For specific data questions about animal history, feeding stats, "
-        "zone visits, or finding specific animals, delegate to the 'strategist' tool. "
-        "Say 'Let me check on that for you' while waiting.\n"
-        "- For general observations about what you currently see, answer "
-        "directly from the scene context above.\n"
-        "- When you receive an alert from the monitor, proactively inform "
-        "the farmer with appropriate urgency.\n"
-    )
-    return Agent(
-        name="concierge",
-        model="gemini-2.5-flash",
-        static_instruction=full_instruction,
-        tools=[AgentTool(agent=strategist)],
-        sub_agents=[],
-    )
-
-
-def create_herdflow_agents(scene_json: str = "{}") -> dict[str, Agent]:
-    """Create all HerdFlow agents and return them."""
-    strategist = create_strategist()
-    monitor = create_monitor(scene_json)
-    concierge = create_concierge(strategist, scene_json)
-    return {"concierge": concierge, "strategist": strategist, "monitor": monitor}
