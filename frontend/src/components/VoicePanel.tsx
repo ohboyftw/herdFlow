@@ -9,15 +9,8 @@ interface TranscriptEntry {
   timestamp: string;
 }
 
-// Mock transcript for development; replaced by LiveKit audio transcriptions in production
-const MOCK_TRANSCRIPT: TranscriptEntry[] = [
-  {
-    id: '1',
-    speaker: 'agent',
-    text: 'HerdFlow online. Monitoring 24 cattle across 3 zones.',
-    timestamp: '09:00:01',
-  },
-];
+// TODO: wire real transcriptions from LiveKit ADK events
+const INITIAL_TRANSCRIPT: TranscriptEntry[] = [];
 
 function SpeakingIndicator() {
   return (
@@ -93,7 +86,7 @@ function AgentStatusBadge({ state }: { state: AgentState }) {
 
 export function VoicePanel() {
   const [micActive, setMicActive] = useState(false);
-  const [transcript] = useState<TranscriptEntry[]>(MOCK_TRANSCRIPT);
+  const [transcript] = useState<TranscriptEntry[]>(INITIAL_TRANSCRIPT);
   const { state: agentState } = useVoiceAssistant();
 
   const isMicOn = micActive || agentState === 'listening';
