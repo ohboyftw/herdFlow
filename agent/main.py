@@ -59,6 +59,7 @@ from google.adk.sessions import InMemorySessionService
 from google.genai import types as genai_types
 from livekit.agents import AgentServer, JobContext, JobProcess
 from livekit.plugins import silero
+from livekit.plugins.google import STT as GoogleSTT
 from livekit.rtc import (
     AudioFrame, AudioSource, AudioStream, LocalAudioTrack,
     LocalVideoTrack, VideoBufferType, VideoFrame, VideoSource,
@@ -157,8 +158,15 @@ async def entrypoint(ctx: JobContext) -> None:
     )
     set_video_analyst(video_analyst)
 
-    # Create ADK agent system
-    prompt = STATIC_PROMPT.replace("{scene_graph_json}", scene_json)
+    # Create ADK agent system — use brief scene summary, not full JSON
+    # Full scene data available via get_scene_summary tool
+    hs = initial_sg.herd_summary
+    brief_scene = (
+        f"{hs.total_visible} animals visible: "
+        f"{hs.standing} standing, {hs.lying} lying, {hs.walking} walking. "
+        f"{len(initial_sg.active_alerts)} alerts active."
+    )
+    prompt = STATIC_PROMPT.replace("{scene_graph_json}", brief_scene)
     # herd_tools imported from adk_agents (6 tools including visual analysis)
 
     # Optional: Gemini 3 Flash sub-agent for deep multi-step analysis (v2)
@@ -233,13 +241,9 @@ async def entrypoint(ctx: JobContext) -> None:
                 prebuilt_voice_config=genai_types.PrebuiltVoiceConfig(voice_name="Puck")
             )
         ),
-        output_audio_transcription=genai_types.AudioTranscriptionConfig(),
-        input_audio_transcription=genai_types.AudioTranscriptionConfig(),
-        # VAD: use defaults — HIGH sensitivity was causing missed input
-        # Default silence_duration is ~1000ms, which is more reliable
-        # Context compression — use empty SlidingWindow() (default params).
-        # Passing target_tokens causes 1008; defaults work per Google docs.
-        # Without this: audio-only sessions limited to 15 min.
+        # Transcription disabled — adds server-side latency to every response.
+        # Using LiveKit STT plugin for async transcription instead.
+        # Context compression with defaults (no target_tokens — causes 1008).
         context_window_compression=genai_types.ContextWindowCompressionConfig(
             sliding_window=genai_types.SlidingWindow(),
         ),
@@ -303,6 +307,12 @@ async def entrypoint(ctx: JobContext) -> None:
         logger.info("[BRIDGE] Listening for ADK audio output...")
         async for event in adk_events:
             try:
+                # Handle interruption — clear audio queue when farmer speaks
+                if event.interrupted:
+                    audio_source.clear_queue()
+                    logger.info("[ADK] Interrupted — cleared audio queue")
+                    continue
+
                 # Audio output comes as inline_data blobs in content parts
                 if event.content and event.content.parts:
                     for part in event.content.parts:
@@ -318,12 +328,6 @@ async def entrypoint(ctx: JobContext) -> None:
                         elif part.text:
                             logger.info("[ADK] Agent said: %s", part.text[:150])
 
-                # Log transcriptions
-                if event.input_transcription and event.input_transcription.text:
-                    logger.info("[ADK] Farmer: %s", event.input_transcription.text)
-                if event.output_transcription and event.output_transcription.text:
-                    logger.info("[ADK] Agent: %s", event.output_transcription.text)
-
                 # Log tool calls
                 if event.content and event.content.parts:
                     for part in event.content.parts:
@@ -332,6 +336,78 @@ async def entrypoint(ctx: JobContext) -> None:
             except Exception:
                 logger.exception("[ADK] Error processing event")
 
+    # Task 3: Async transcription via LiveKit Google STT (parallel, non-blocking)
+    async def transcription_loop() -> None:
+        """Run STT on farmer's audio, publish transcripts via data channel."""
+        import livekit.rtc as rtc
+
+        stt = GoogleSTT(sample_rate=INPUT_SAMPLE_RATE)
+        logger.info("[STT] Starting async transcription")
+
+        # Wait for participant audio track
+        audio_track = None
+        for pub in participant.track_publications.values():
+            if pub.track and pub.track.kind == rtc.TrackKind.KIND_AUDIO:
+                audio_track = pub.track
+                break
+
+        if audio_track is None:
+            logger.warning("[STT] No audio track found, waiting for subscription")
+
+            async def _wait_for_track() -> rtc.Track | None:
+                event = asyncio.Event()
+                found_track: list[rtc.Track] = []
+
+                @ctx.room.on("track_subscribed")
+                def _on_track(
+                    track: rtc.Track, pub: rtc.RemoteTrackPublication, rp: rtc.RemoteParticipant
+                ) -> None:
+                    if track.kind == rtc.TrackKind.KIND_AUDIO:
+                        found_track.append(track)
+                        event.set()
+
+                await asyncio.wait_for(event.wait(), timeout=30)
+                return found_track[0] if found_track else None
+
+            audio_track = await _wait_for_track()
+            if audio_track is None:
+                logger.warning("[STT] Timed out waiting for audio track")
+                return
+
+        # Stream audio through STT
+        audio_stream = AudioStream(
+            track=audio_track, sample_rate=INPUT_SAMPLE_RATE, num_channels=NUM_CHANNELS
+        )
+        stt_stream = stt.stream()
+
+        async def _feed_stt() -> None:
+            async for frame_event in audio_stream:
+                stt_stream.push_frame(frame_event.frame)
+
+        asyncio.create_task(_feed_stt())
+
+        async for stt_event in stt_stream:
+            if stt_event.alternatives:
+                text = stt_event.alternatives[0].text
+                is_final = stt_event.is_final
+                if text.strip():
+                    logger.info("[STT] %s: %s", "FINAL" if is_final else "interim", text)
+                    if is_final:
+                        # Publish transcript to frontend via data channel
+                        import json
+                        transcript = json.dumps({
+                            "speaker": "farmer",
+                            "text": text,
+                            "timestamp": stt_event.alternatives[0].start_time or "",
+                            "final": True,
+                        })
+                        try:
+                            await ctx.room.local_participant.publish_data(
+                                transcript.encode(), topic="transcript"
+                            )
+                        except Exception:
+                            logger.debug("[STT] Failed to publish transcript")
+
     # Shared frame holder — video publisher writes, perception reads
     # This keeps bounding boxes in sync with the displayed video
     shared_frame: dict[str, np.ndarray | None] = {"frame": None}
@@ -339,6 +415,7 @@ async def entrypoint(ctx: JobContext) -> None:
     # Start all background tasks
     asyncio.create_task(audio_input_bridge())
     asyncio.create_task(audio_output_bridge())
+    asyncio.create_task(transcription_loop())
     asyncio.create_task(
         perception_loop(ctx, scene_builder, shared_frame, video_analyst=video_analyst)
     )
