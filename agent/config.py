@@ -39,6 +39,10 @@ class Settings(BaseSettings):
     video_analyst_on_demand_model: str = "gemini-3-pro-preview"
     video_analyst_summary_interval_s: float = 30.0
 
+    # Two-pipe architecture
+    voice_agent_identity: str = "herdflow-voice"
+    video_agent_identity: str = "herdflow-video"
+
     # Zone config (frame-relative percentages)
     zone_config: dict = {
         "feed_area": {"x1": 0.0, "y1": 0.0, "x2": 0.3, "y2": 0.5},
