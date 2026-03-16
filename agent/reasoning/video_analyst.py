@@ -237,7 +237,7 @@ class VideoAnalyst:
                         )
                     ],
                 ),
-                timeout=20.0,
+                timeout=30.0,
             )
 
             text = self._strip_code_fences(response.text or "[]")
