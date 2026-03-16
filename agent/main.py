@@ -383,7 +383,12 @@ async def perception_loop(
     while True:
         frame_id += 1
         if frame_iter is not None:
-            frame = await asyncio.to_thread(next, frame_iter)
+            try:
+                frame = await asyncio.to_thread(next, frame_iter)
+            except StopIteration:
+                logger.warning("[PERCEPTION] Frame iterator exhausted, restarting")
+                frame_iter = video_source.frames() if video_source else None
+                frame = await asyncio.to_thread(next, frame_iter) if frame_iter else np.zeros((720, 1280, 3), dtype=np.uint8)
         else:
             frame = np.random.randint(0, 255, (720, 1280, 3), dtype=np.uint8)
 
@@ -428,16 +433,30 @@ async def video_publish_loop(
 ) -> None:
     """Publish video frames to LiveKit at smooth FPS, independent of perception."""
     source = FileVideoSource(path=video_path, target_fps=target_fps)
-    frame_iter = source.frames()
     interval = 1.0 / target_fps
     logger.info("[VIDEO] Publishing at ~%.0f FPS from %s", target_fps, video_path)
 
-    while True:
-        frame = await asyncio.to_thread(next, frame_iter)
-        h, w = frame.shape[:2]
-        lk_frame = VideoFrame(w, h, VideoBufferType.RGB24, frame.tobytes())
-        video_src.capture_frame(lk_frame)
-        await asyncio.sleep(interval)
+    try:
+        frame_iter = source.frames()
+        next_time = asyncio.get_event_loop().time()
+        while True:
+            try:
+                frame = await asyncio.to_thread(next, frame_iter)
+            except StopIteration:
+                logger.warning("[VIDEO] Frame iterator exhausted, restarting")
+                frame_iter = source.frames()
+                frame = await asyncio.to_thread(next, frame_iter)
+
+            h, w = frame.shape[:2]
+            lk_frame = VideoFrame(w, h, VideoBufferType.RGB24, frame.tobytes())
+            video_src.capture_frame(lk_frame)
+
+            next_time += interval
+            now = asyncio.get_event_loop().time()
+            await asyncio.sleep(max(0, next_time - now))
+    finally:
+        source.close()
+        logger.info("[VIDEO] Publish loop stopped, video source closed")
 
 
 if __name__ == "__main__":
