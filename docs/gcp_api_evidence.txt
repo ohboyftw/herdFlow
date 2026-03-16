@@ -1,0 +1,89 @@
+================================================================================
+HerdFlow — Google Cloud API Usage Evidence
+Live session logs from 2026-03-16
+================================================================================
+
+--- GOOGLE API KEY AUTHENTICATION ---
+(Proves GOOGLE_API_KEY is configured and used for all Gemini API calls)
+
+2026-03-16 20:56:12,732 WARNING google_genai._api_client  Both GOOGLE_API_KEY and GEMINI_API_KEY are set. Using GOOGLE_API_KEY.
+2026-03-16 20:56:13,511 WARNING google_genai._api_client  Both GOOGLE_API_KEY and GEMINI_API_KEY are set. Using GOOGLE_API_KEY.
+2026-03-16 23:44:00,201 WARNING google_genai._api_client  Both GOOGLE_API_KEY and GEMINI_API_KEY are set. Using GOOGLE_API_KEY.
+2026-03-16 23:44:01,040 WARNING google_genai._api_client  Both GOOGLE_API_KEY and GEMINI_API_KEY are set. Using GOOGLE_API_KEY.
+
+
+--- GEMINI 2.5 FLASH NATIVE AUDIO (LIVE API) ---
+(Voice agent — ADK + Gemini Live for real-time voice interaction)
+
+2026-03-16 20:56:12,725 INFO  herdflow  HerdFlow voice process ADK Live session started (model=gemini-2.5-flash-native-audio)
+2026-03-16 23:44:05,195 INFO  herdflow  HerdFlow voice ADK Live session started
+2026-03-16 23:44:07,796 INFO  herdflow  [LATENCY] First audio frame at 127423.128
+
+
+--- GOOGLE ADK TOOL CALLS ---
+(Tools routed through Google ADK agent framework → Gemini Live API)
+
+2026-03-16 20:56:17,881 INFO  herdflow  [ADK] Tool call: get_scene_summary
+2026-03-16 20:58:05,660 INFO  herdflow  [ADK] Tool call: get_scene_summary
+2026-03-16 23:44:28,889 INFO  herdflow  [ADK] Tool call: get_scene_summary at 127444.221
+2026-03-16 23:44:28,890 INFO  herdflow  [LATENCY] Tool response in 0.001s
+2026-03-16 23:45:09,259 INFO  herdflow  [ADK] Tool call: analyze_frame at 127484.591
+2026-03-16 23:45:09,261 INFO  herdflow  [LATENCY] Tool response in 0.002s
+2026-03-16 23:45:43,379 INFO  herdflow  [ADK] Tool call: analyze_frame at 127518.710
+2026-03-16 23:45:43,380 INFO  herdflow  [LATENCY] Tool response in 0.001s
+2026-03-16 23:47:02,999 INFO  herdflow  [ADK] Tool call: get_scene_summary at 127598.331
+2026-03-16 23:47:03,000 INFO  herdflow  [LATENCY] Tool response in 0.001s
+
+
+--- GOOGLE STT (SPEECH-TO-TEXT) ---
+(Async transcription of farmer's speech via livekit.plugins.google.STT)
+
+2026-03-16 20:56:14,341 INFO  herdflow  [STT] Starting async transcription
+2026-03-16 20:56:41,264 INFO  herdflow  [STT] FINAL: That.
+2026-03-16 20:57:34,923 INFO  herdflow  [STT] FINAL:  I can you hear me?
+2026-03-16 20:57:50,306 INFO  herdflow  [STT] FINAL:  Can you describe the sea?
+2026-03-16 20:58:27,746 INFO  herdflow  [STT] FINAL:  Can you see any cows?
+2026-03-16 23:44:01,926 INFO  herdflow  [STT] Starting async transcription
+2026-03-16 23:44:20,753 INFO  herdflow  [STT] FINAL: Then you see the animals right now.
+2026-03-16 23:44:37,685 INFO  herdflow  [STT] FINAL:  Can you describe the cow in the middle?
+2026-03-16 23:45:19,929 INFO  herdflow  [STT] FINAL:  How is the weather today?
+2026-03-16 23:45:51,690 INFO  herdflow  [STT] FINAL:  Okay, that's good.
+2026-03-16 23:46:14,289 INFO  herdflow  [STT] FINAL:  Which is the count in the middle now.
+
+
+--- GEMINI 3 FLASH (VISION — BACKGROUND SUMMARIES) ---
+(Video process — scene analysis every 30s via google.genai SDK)
+
+2026-03-16 20:56:11,596 INFO  herdflow.video_analyst  [ANALYST] Background loop started (every 30s, model=gemini-3-flash-preview)
+2026-03-16 20:56:13,247 INFO  herdflow.video_analyst  [ANALYST] Detecting zones from first frame...
+2026-03-16 20:56:13,248 WARNING google_genai._api_client  Both GOOGLE_API_KEY and GEMINI_API_KEY are set. Using GOOGLE_API_KEY.
+2026-03-16 20:56:14,044 INFO  google_genai.models  AFC is enabled with max remote calls: 10.
+2026-03-16 20:56:41,610 INFO  herdflow.video_analyst  [ANALYST] Calling gemini-3-flash-preview with 18519 byte JPEG...
+2026-03-16 20:56:49,964 INFO  herdflow.video_analyst  [ANALYST] Background summary: There are four cows visible in the frame, with one isolated animal walking on the left and a cluster
+2026-03-16 20:57:54,998 INFO  herdflow.video_analyst  [ANALYST] Background summary: This frame shows three cows distributed across a grassy hillside overlooking the water. One animal i
+2026-03-16 20:58:30,797 INFO  herdflow.video_analyst  [ANALYST] Background summary: The frame shows six animals widely distributed across the pasture overlooking the water within the d
+2026-03-16 20:59:19,008 INFO  herdflow.video_analyst  [ANALYST] Background summary: There are four cows visible in the frame: two are walking and two are standing in a pasture overlook
+2026-03-16 21:00:03,936 INFO  herdflow.video_analyst  [ANALYST] Background summary: In this frame, there are 12 cows distributed across a hillside pasture, with 10 standing and 2 lying
+
+
+--- GEMINI 3 FLASH (VISION — ENTITY ANNOTATION) ---
+(Per-animal visual descriptions: color, posture, health notes)
+
+2026-03-16 20:58:42,605 INFO  herdflow.video_analyst  [ANALYST] Annotated 5 entities: [('COW-042', 'black cow, standing and grazin'), ('COW-041', 'brown cow, standing and grazin'), ('COW-040', 'black and white cow, standing'), ('COW-044', 'small dark cow, lying down in '), ('COW-046', 'dark cow, lying down in distan')]
+2026-03-16 20:59:28,842 INFO  herdflow.video_analyst  [ANALYST] Annotated 4 entities: [('COW-048', 'large black cow, grazing in th'), ('COW-051', 'black and white cow, grazing i'), ('COW-054', 'small black cow, grazing in th'), ('COW-050', 'reddish-brown and white cow, g')]
+2026-03-16 21:00:27,182 INFO  herdflow.video_analyst  [ANALYST] Annotated 13 entities: [('COW-057', 'black cow, standing second fro'), ('COW-058', 'black and white patterned cow,'), ('COW-059', 'black cow on the far left edge'), ('COW-060', 'black and white cow, walking i'), ('COW-061', 'black cow, standing in the mid'), ('COW-062', 'black cow standing slightly is'), ('COW-063', 'black cow, standing near the c'), ('COW-064', 'partially visible animal on th'), ('COW-066', 'black cow, standing in the cen'), ('COW-067', 'possible distant animal or lan'), ('COW-068', 'possible distant animal or lan'), ('COW-069', 'small white cow or calf standi'), ('COW-070', 'white cow standing further to ')]
+
+
+--- ADK AGENT RESPONSES (VIA GEMINI LIVE API) ---
+(Agent thinking and voice responses — proves real-time Gemini Live connection)
+
+2026-03-16 20:56:16,991 INFO  herdflow  [ADK] Agent said: **Formulating the Greeting**
+2026-03-16 20:57:42,417 INFO  herdflow  [ADK] Agent said: **Acknowledge and Redirect**
+2026-03-16 20:58:00,760 INFO  herdflow  [ADK] Agent said: **Obtain Scene Description**
+2026-03-16 20:58:40,603 INFO  herdflow  [ADK] Agent said: **Confirming Current Limitations**
+2026-03-16 21:00:29,487 INFO  herdflow  [ADK] Agent said: **Seeking Clarification Calmly**
+
+
+================================================================================
+END OF EVIDENCE
+================================================================================
