@@ -6,6 +6,7 @@ import { AlertPanel } from './components/AlertPanel';
 import { Dashboard } from './components/Dashboard';
 import { useSceneGraph } from './hooks/useSceneGraph';
 import { useAlerts } from './hooks/useAlerts';
+import { useTranscript } from './hooks/useTranscript';
 
 const LIVEKIT_URL = import.meta.env.VITE_LIVEKIT_URL ?? 'ws://localhost:7880';
 const LIVEKIT_TOKEN: string | undefined = import.meta.env.VITE_LIVEKIT_TOKEN;
@@ -14,6 +15,7 @@ function RoomContent() {
   const room = useRoomContext();
   const sceneGraph = useSceneGraph(room);
   const alerts = useAlerts(room);
+  const transcript = useTranscript(room);
 
   return (
     <div className="flex h-screen bg-slate-900 text-white overflow-hidden">
@@ -24,7 +26,7 @@ function RoomContent() {
 
       {/* Right: Control panel (30%) */}
       <div className="w-[30%] flex flex-col border-l border-slate-700 overflow-y-auto">
-        <VoicePanel />
+        <VoicePanel room={room} transcript={transcript} />
         <AlertPanel alerts={alerts} />
         <Dashboard sceneGraph={sceneGraph} />
       </div>
