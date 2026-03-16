@@ -1,0 +1,178 @@
+[
+  {
+    "id": "UAT-001",
+    "title": "Agent process starts without crash",
+    "priority": "P0",
+    "source": "e2e-plan:phase-1",
+    "type": "automated",
+    "preconditions": ["credentials.json exists", ".env has LIVEKIT_URL/KEY/SECRET", "demo_videos/yt_cattle_farm_720p.mp4 exists"],
+    "verification": "Process starts, logs 'HerdFlow started (detector=..., video=...)'",
+    "log_pattern": "HerdFlow started"
+  },
+  {
+    "id": "UAT-002",
+    "title": "RF-DETR detector loads successfully",
+    "priority": "P0",
+    "source": "e2e-plan:phase-1",
+    "type": "automated",
+    "preconditions": ["USE_REAL_DETECTOR=true in .env"],
+    "verification": "Log shows 'detector=RFDETRDetector'",
+    "log_pattern": "detector=RFDETRDetector"
+  },
+  {
+    "id": "UAT-003",
+    "title": "Agent registers with LiveKit Cloud",
+    "priority": "P0",
+    "source": "e2e-plan:phase-1",
+    "type": "automated",
+    "preconditions": ["LiveKit Cloud project active"],
+    "verification": "No connection error, agent waits for participant",
+    "log_pattern": "worker registered"
+  },
+  {
+    "id": "UAT-004",
+    "title": "Participant joins and agent detects them",
+    "priority": "P0",
+    "source": "e2e-plan:phase-3",
+    "type": "manual",
+    "preconditions": ["Agent running", "Valid LiveKit token", "Browser with mic access"],
+    "steps": [
+      "Open test.html or React frontend",
+      "Click Connect & Join Room",
+      "Allow microphone access"
+    ],
+    "verification": "Agent log shows 'Participant joined: farmer'",
+    "log_pattern": "Participant joined"
+  },
+  {
+    "id": "UAT-005",
+    "title": "Audio input bridge subscribes to farmer mic",
+    "priority": "P0",
+    "source": "e2e-plan:phase-3",
+    "type": "manual",
+    "preconditions": ["UAT-004 passed"],
+    "verification": "Log shows '[BRIDGE] Subscribed to participant audio' or '[BRIDGE] Streaming participant audio to ADK'",
+    "log_pattern": "\\[BRIDGE\\] (Subscribed|Streaming)"
+  },
+  {
+    "id": "UAT-006",
+    "title": "ADK Live session starts and agent greets farmer",
+    "priority": "P0",
+    "source": "e2e-plan:phase-3",
+    "type": "manual",
+    "preconditions": ["UAT-005 passed"],
+    "steps": [
+      "Wait 5-10 seconds after joining",
+      "Listen for agent greeting audio in browser"
+    ],
+    "verification": "You HEAR the agent speak a greeting. Log shows '[ADK] Agent:' transcription.",
+    "log_pattern": "\\[ADK\\] Agent:"
+  },
+  {
+    "id": "UAT-007",
+    "title": "Voice triggers tool call (search_entity_history)",
+    "priority": "P0",
+    "source": "e2e-plan:phase-4",
+    "type": "manual",
+    "preconditions": ["UAT-006 passed"],
+    "steps": [
+      "Say clearly: 'How is cow three doing?'",
+      "Wait for agent response (5-15 seconds)"
+    ],
+    "verification": "Log shows '[ADK] Farmer: ...' (input transcription) AND '[ADK] Tool call: search_entity_history'. Agent speaks COW-003 data back.",
+    "log_pattern": "\\[ADK\\] Tool call: search_entity_history"
+  },
+  {
+    "id": "UAT-008",
+    "title": "Voice triggers tool call (get_herd_stats)",
+    "priority": "P1",
+    "source": "e2e-plan:phase-4",
+    "type": "manual",
+    "preconditions": ["UAT-006 passed"],
+    "steps": [
+      "Say: 'How many cows have fed today?'",
+      "Wait for agent response"
+    ],
+    "verification": "Log shows '[ADK] Tool call: get_herd_stats'. Agent mentions '6 fed' and 'COW-003, COW-007 not fed'.",
+    "log_pattern": "\\[ADK\\] Tool call: get_herd_stats"
+  },
+  {
+    "id": "UAT-009",
+    "title": "Video frames sent to Gemini Live",
+    "priority": "P0",
+    "source": "e2e-plan:phase-5",
+    "type": "log-check",
+    "preconditions": ["Agent running with video source"],
+    "verification": "Log shows '[VIDEO] Sent frame X to Gemini (Y bytes)' repeatedly",
+    "log_pattern": "\\[VIDEO\\] Sent frame"
+  },
+  {
+    "id": "UAT-010",
+    "title": "Agent describes what it sees when asked",
+    "priority": "P1",
+    "source": "e2e-plan:phase-5",
+    "type": "manual",
+    "preconditions": ["UAT-009 passed", "UAT-006 passed"],
+    "steps": [
+      "Say: 'What do you see right now?'",
+      "Wait for agent response"
+    ],
+    "verification": "Agent describes cattle/animals in the scene (not generic refusal). Shows awareness of video content.",
+    "log_pattern": "\\[ADK\\] Agent:"
+  },
+  {
+    "id": "UAT-011",
+    "title": "Data channels flow to browser (scene_graph)",
+    "priority": "P1",
+    "source": "e2e-plan:phase-5",
+    "type": "manual",
+    "preconditions": ["UAT-004 passed"],
+    "verification": "test.html data panel shows scene_graph updates with entity counts",
+    "checkpoint": "screenshot"
+  },
+  {
+    "id": "UAT-012",
+    "title": "Data channels flow to browser (overlay)",
+    "priority": "P1",
+    "source": "e2e-plan:phase-5",
+    "type": "manual",
+    "preconditions": ["UAT-004 passed"],
+    "verification": "test.html data panel shows overlay updates with bounding boxes",
+    "checkpoint": "screenshot"
+  },
+  {
+    "id": "UAT-013",
+    "title": "Session survives 2+ minutes",
+    "priority": "P0",
+    "source": "e2e-plan:phase-6",
+    "type": "manual",
+    "preconditions": ["UAT-006 passed"],
+    "steps": [
+      "Keep session open for 2+ minutes",
+      "Talk intermittently",
+      "Verify agent stays responsive"
+    ],
+    "verification": "No crash, no audio degradation, agent responds to questions after 2 min",
+    "log_pattern": null
+  },
+  {
+    "id": "UAT-014",
+    "title": "Context compression doesn't crash session",
+    "priority": "P1",
+    "source": "e2e-plan:phase-6",
+    "type": "manual",
+    "preconditions": ["UAT-013 passed"],
+    "verification": "No 'context window' errors in log. Session stays alive past initial context fill.",
+    "log_pattern": null
+  },
+  {
+    "id": "UAT-015",
+    "title": "Proactive alert via voice (agent initiates)",
+    "priority": "P2",
+    "source": "e2e-plan:bonus",
+    "type": "manual",
+    "preconditions": ["UAT-013 passed", "proactive_audio=True in RunConfig"],
+    "verification": "Agent spontaneously mentions an observation or alert without farmer asking",
+    "checkpoint": "observe"
+  }
+]

@@ -15,8 +15,44 @@ Usage: uv run python -m agent.main dev
 from __future__ import annotations
 
 import asyncio
+import os
+from pathlib import Path
+
+# Load .env before any LiveKit imports read os.environ
+_env_file = Path(__file__).resolve().parent.parent / ".env"
+if _env_file.exists():
+    for _line in _env_file.read_text().splitlines():
+        _line = _line.strip()
+        if _line and not _line.startswith("#") and "=" in _line:
+            _k, _v = _line.split("=", 1)
+            os.environ.setdefault(_k.strip(), _v.strip())
 import contextlib
 import logging
+
+
+# Log file — timestamped per session (avoids Windows file locking on rotation)
+_log_dir = Path(__file__).resolve().parent.parent / "logs"
+_log_dir.mkdir(exist_ok=True)
+_file_handler = logging.FileHandler(
+    _log_dir / "herdflow.log", mode="a", encoding="utf-8"
+)
+_file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)-5s %(name)s  %(message)s"))
+_file_handler.setLevel(logging.DEBUG)
+logging.getLogger().addHandler(_file_handler)
+
+# Console: INFO only. File gets DEBUG.
+# Set root to DEBUG (file captures everything), then force all
+# console/stream handlers to INFO. Also suppress noisy loggers.
+logging.getLogger().setLevel(logging.DEBUG)
+for _h in logging.getLogger().handlers:
+    if isinstance(_h, logging.StreamHandler) and _h is not _file_handler:
+        _h.setLevel(logging.INFO)
+# Suppress DEBUG from noisy libs
+for _name in ("asyncio", "urllib3", "httpcore", "httpx", "google", "grpc"):
+    logging.getLogger(_name).setLevel(logging.WARNING)
+# Our loggers: INFO to console, DEBUG to file
+logging.getLogger("herdflow").setLevel(logging.DEBUG)
+logging.getLogger("agent").setLevel(logging.DEBUG)
 
 import numpy as np
 from google.adk.agents import Agent, LiveRequestQueue
@@ -25,7 +61,7 @@ from google.adk.sessions import InMemorySessionService
 from google.genai import types as genai_types
 from livekit.agents import AgentServer, JobContext, JobProcess
 from livekit.plugins import silero
-from livekit.rtc import AudioFrame, AudioSource, AudioStream
+from livekit.rtc import AudioFrame, AudioSource, AudioStream, LocalAudioTrack
 
 from agent.adk_agents import (
     find_by_description,
@@ -48,13 +84,18 @@ logger = logging.getLogger("herdflow")
 server = AgentServer()
 
 # Audio config matching Gemini Live API expectations
-SAMPLE_RATE = 16000
+INPUT_SAMPLE_RATE = 16000   # Gemini Live expects 16kHz PCM input
+OUTPUT_SAMPLE_RATE = 24000  # Gemini Live outputs 24kHz PCM audio
 NUM_CHANNELS = 1
-FRAME_DURATION_MS = 100  # 100ms chunks
 
 
 def setup(proc: JobProcess) -> None:
     """Pre-load models (runs once per worker process)."""
+    # Suppress DEBUG on console in subprocess too
+    for h in logging.getLogger().handlers:
+        if isinstance(h, logging.StreamHandler) and not isinstance(h, logging.FileHandler):
+            h.setLevel(logging.INFO)
+
     proc.userdata["vad"] = silero.VAD.load()
 
     if settings.use_real_detector:
@@ -173,14 +214,16 @@ async def entrypoint(ctx: JobContext) -> None:
     )
 
     # LiveKit audio source for sending agent speech to the room
-    audio_source = AudioSource(SAMPLE_RATE, NUM_CHANNELS)
-    track = await ctx.room.local_participant.publish_audio(audio_source)
-    logger.info("Published audio track: %s", track.sid)
+    audio_source = AudioSource(OUTPUT_SAMPLE_RATE, NUM_CHANNELS)
+    audio_track = LocalAudioTrack.create_audio_track("agent-voice", audio_source)
+    publication = await ctx.room.local_participant.publish_track(audio_track)
+    logger.info("Published audio track: %s", publication.sid)
 
     # ADK live request queue — the audio bridge
     live_queue = LiveRequestQueue()
 
-    # Run config for Gemini Live with audio (per best practices)
+    # Run config for Gemini Live with audio
+    # Start minimal — add features back once base audio works
     run_config = RunConfig(
         response_modalities=["AUDIO"],
         speech_config=genai_types.SpeechConfig(
@@ -190,21 +233,6 @@ async def entrypoint(ctx: JobContext) -> None:
         ),
         output_audio_transcription=genai_types.AudioTranscriptionConfig(),
         input_audio_transcription=genai_types.AudioTranscriptionConfig(),
-        # Context window compression — audio tokens accumulate at ~25/sec
-        # Without this, sessions limited to ~15 min audio-only
-        context_window_compression=genai_types.ContextWindowCompressionConfig(
-            sliding_window=genai_types.SlidingWindow(
-                target_token_count=100_000,
-            ),
-        ),
-        # Session resumption for reconnection without losing context
-        session_resumption=genai_types.SessionResumptionConfig(handle=None),
-        # Proactivity — agent can initiate speech on alerts
-        proactivity=genai_types.ProactivityConfig(
-            proactive_audio=True,
-        ),
-        # Affective dialog — natural emotional tone
-        enable_affective_dialog=True,
     )
 
     # Wait for participant
@@ -222,24 +250,30 @@ async def entrypoint(ctx: JobContext) -> None:
     # Task 1: Pipe LiveKit incoming audio → ADK
     async def audio_input_bridge() -> None:
         """Read audio from LiveKit participant and feed to ADK."""
+        import livekit.rtc as rtc
+
+        async def _stream_audio(audio_track: rtc.Track) -> None:
+            audio_stream = AudioStream(track=audio_track, sample_rate=INPUT_SAMPLE_RATE, num_channels=NUM_CHANNELS)
+            logger.info("[BRIDGE] Streaming participant audio to ADK")
+            async for frame_event in audio_stream:
+                frame: AudioFrame = frame_event.frame
+                pcm_data = bytes(frame.data)
+                blob = genai_types.Blob(
+                    mime_type=f"audio/pcm;rate={INPUT_SAMPLE_RATE}",
+                    data=pcm_data,
+                )
+                live_queue.send_realtime(blob)
+
         logger.info("[BRIDGE] Waiting for participant audio track...")
-        # Wait for the participant's audio track
+        # Check existing tracks first
         for pub in participant.track_publications.values():
-            if pub.track and pub.track.kind.name == "KIND_AUDIO":
-                audio_stream = AudioStream(track=pub.track)
-                logger.info("[BRIDGE] Subscribed to participant audio")
-                async for frame_event in audio_stream:
-                    frame: AudioFrame = frame_event.frame
-                    pcm_data = bytes(frame.data)
-                    blob = genai_types.Blob(
-                        mime_type="audio/pcm;rate=16000",
-                        data=pcm_data,
-                    )
-                    live_queue.send_realtime(blob)
+            if pub.track and pub.track.kind == rtc.TrackKind.KIND_AUDIO:
+                logger.info("[BRIDGE] Found existing audio track, subscribing")
+                asyncio.create_task(_stream_audio(pub.track))
                 return
 
         # If no track yet, listen for new tracks
-        import livekit.rtc as rtc
+        logger.info("[BRIDGE] No audio track yet, waiting for track_subscribed event")
 
         @ctx.room.on("track_subscribed")
         def on_track(
@@ -248,51 +282,43 @@ async def entrypoint(ctx: JobContext) -> None:
             remote_participant: rtc.RemoteParticipant,
         ) -> None:
             if track.kind == rtc.TrackKind.KIND_AUDIO:
+                logger.info("[BRIDGE] Audio track subscribed via event")
                 asyncio.create_task(_stream_audio(track))
-
-        async def _stream_audio(audio_track: rtc.Track) -> None:
-            audio_stream = AudioStream(track=audio_track)
-            logger.info("[BRIDGE] Streaming participant audio to ADK")
-            async for frame_event in audio_stream:
-                frame: AudioFrame = frame_event.frame
-                pcm_data = bytes(frame.data)
-                blob = genai_types.Blob(
-                    mime_type="audio/pcm;rate=16000",
-                    data=pcm_data,
-                )
-                live_queue.send_realtime(blob)
 
     # Task 2: Pipe ADK output audio → LiveKit
     async def audio_output_bridge() -> None:
         """Read ADK events and send audio responses to LiveKit."""
         logger.info("[BRIDGE] Listening for ADK audio output...")
         async for event in adk_events:
-            # Audio output comes as inline_data blobs in content parts
-            if event.content and event.content.parts:
-                for part in event.content.parts:
-                    if part.inline_data and part.inline_data.mime_type.startswith("audio/"):
-                        pcm_bytes = part.inline_data.data
-                        frame = AudioFrame(
-                            data=pcm_bytes,
-                            sample_rate=SAMPLE_RATE,
-                            num_channels=NUM_CHANNELS,
-                            samples_per_channel=len(pcm_bytes) // 2,
-                        )
-                        await audio_source.capture_frame(frame)
-                    elif part.text:
-                        logger.info("[ADK] Agent said: %s", part.text[:150])
+            try:
+                # Audio output comes as inline_data blobs in content parts
+                if event.content and event.content.parts:
+                    for part in event.content.parts:
+                        if part.inline_data and part.inline_data.mime_type.startswith("audio/"):
+                            pcm_bytes = part.inline_data.data
+                            frame = AudioFrame(
+                                data=pcm_bytes,
+                                sample_rate=OUTPUT_SAMPLE_RATE,
+                                num_channels=NUM_CHANNELS,
+                                samples_per_channel=len(pcm_bytes) // 2,
+                            )
+                            await audio_source.capture_frame(frame)
+                        elif part.text:
+                            logger.info("[ADK] Agent said: %s", part.text[:150])
 
-            # Log transcriptions
-            if event.input_transcription and event.input_transcription.text:
-                logger.info("[ADK] Farmer: %s", event.input_transcription.text)
-            if event.output_transcription and event.output_transcription.text:
-                logger.info("[ADK] Agent: %s", event.output_transcription.text)
+                # Log transcriptions
+                if event.input_transcription and event.input_transcription.text:
+                    logger.info("[ADK] Farmer: %s", event.input_transcription.text)
+                if event.output_transcription and event.output_transcription.text:
+                    logger.info("[ADK] Agent: %s", event.output_transcription.text)
 
-            # Log tool calls
-            if event.content and event.content.parts:
-                for part in event.content.parts:
-                    if part.function_call:
-                        logger.info("[ADK] Tool call: %s", part.function_call.name)
+                # Log tool calls
+                if event.content and event.content.parts:
+                    for part in event.content.parts:
+                        if part.function_call:
+                            logger.info("[ADK] Tool call: %s", part.function_call.name)
+            except Exception:
+                logger.exception("[ADK] Error processing event")
 
     # Context injection for scene updates
     async def inject_context(scene_json_str: str) -> None:

@@ -62,3 +62,5 @@ media/
 .worktrees/
 credentials.json
 demo_videos/
+tests/uat/evidence/
+logs/

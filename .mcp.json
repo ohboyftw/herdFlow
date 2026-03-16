@@ -1,0 +1,27 @@
+{
+  "mcpServers": {
+    "engram": {
+      "command": "py",
+      "args": [
+        "C:\\Users\\aravi\\.claude\\skills\\engram-memory-skill\\mcp_server.py"
+      ],
+      "env": {
+        "ENGRAM_PROJECT_ROOT": "D:\\Home\\HerdFlow"
+      }
+    },
+    "rlm": {
+      "command": "py",
+      "args": [
+        "D:\\Home\\claudeSkills\\repo\\rlm-workspace\\mcp_server.py"
+      ],
+      "cwd": "D:\\Home\\claudeSkills\\repo\\rlm-workspace"
+    },
+    "beacon": {
+      "command": "py",
+      "args": [
+        "D:\\Home\\claudeSkills\\repo\\beacon\\mcp_server.py"
+      ],
+      "cwd": "D:\\Home\\claudeSkills\\repo\\beacon"
+    }
+  }
+}
