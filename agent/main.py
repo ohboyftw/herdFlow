@@ -48,7 +48,7 @@ for _h in logging.getLogger().handlers:
     if isinstance(_h, logging.StreamHandler) and _h is not _file_handler:
         _h.setLevel(logging.INFO)
 # Suppress DEBUG from noisy libs
-for _name in ("asyncio", "urllib3", "httpcore", "httpx", "google", "grpc"):
+for _name in ("asyncio", "urllib3", "httpcore", "httpx", "google", "grpc", "google_adk"):
     logging.getLogger(_name).setLevel(logging.WARNING)
 # Our loggers: INFO to console, DEBUG to file
 logging.getLogger("herdflow").setLevel(logging.DEBUG)
@@ -223,7 +223,6 @@ async def entrypoint(ctx: JobContext) -> None:
     live_queue = LiveRequestQueue()
 
     # Run config for Gemini Live with audio
-    # Start minimal — add features back once base audio works
     run_config = RunConfig(
         response_modalities=["AUDIO"],
         speech_config=genai_types.SpeechConfig(
@@ -233,6 +232,12 @@ async def entrypoint(ctx: JobContext) -> None:
         ),
         output_audio_transcription=genai_types.AudioTranscriptionConfig(),
         input_audio_transcription=genai_types.AudioTranscriptionConfig(),
+        # Context compression — without this, audio tokens fill the window and session drops
+        context_window_compression=genai_types.ContextWindowCompressionConfig(
+            sliding_window=genai_types.SlidingWindow(
+                target_tokens=100_000,
+            ),
+        ),
     )
 
     # Wait for participant
@@ -333,8 +338,10 @@ async def entrypoint(ctx: JobContext) -> None:
     # Start all background tasks
     asyncio.create_task(audio_input_bridge())
     asyncio.create_task(audio_output_bridge())
-    asyncio.create_task(perception_loop(ctx, scene_builder, scene_queue, video_source, live_queue))
-    asyncio.create_task(sampler.run(scene_queue, inject_context))
+    # TODO(e2e): re-enable video+context once audio-only session is stable
+    # asyncio.create_task(perception_loop(ctx, scene_builder, scene_queue, video_source, live_queue))
+    # asyncio.create_task(sampler.run(scene_queue, inject_context))
+    asyncio.create_task(perception_loop(ctx, scene_builder, scene_queue, video_source, None))  # no video to Gemini
 
     # Send initial greeting request
     live_queue.send_content(
