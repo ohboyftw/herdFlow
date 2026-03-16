@@ -1,6 +1,7 @@
 """One-command e2e test launcher.
 
-Generates a fresh LiveKit token, patches test.html, and starts the agent.
+Generates fresh LiveKit tokens (farmer + video agent), patches test.html,
+and starts the two-pipe agent architecture.
 
 Usage:
     uv run python scripts/e2e.py
@@ -29,7 +30,7 @@ if env_file.exists():
 
 os.environ.setdefault("GOOGLE_APPLICATION_CREDENTIALS", str(ROOT / "credentials.json"))
 
-# ── Generate token ──
+# ── Generate tokens ──
 api_key = os.environ.get("LIVEKIT_API_KEY", "")
 api_secret = os.environ.get("LIVEKIT_API_SECRET", "")
 livekit_url = os.environ.get("LIVEKIT_URL", "")
@@ -46,7 +47,8 @@ except ImportError:
 
 room_name = f"hf-e2e-{int(time.time())}"
 
-token = (
+# Farmer token (for browser)
+farmer_token = (
     AccessToken(api_key, api_secret)
     .with_identity("farmer")
     .with_name("Farmer (E2E)")
@@ -62,7 +64,26 @@ token = (
     .with_ttl(timedelta(hours=6))
 )
 
-jwt = token.to_jwt()
+farmer_jwt = farmer_token.to_jwt()
+
+# Video agent token
+video_token = (
+    AccessToken(api_key, api_secret)
+    .with_identity("herdflow-video")
+    .with_name("HerdFlow Video Agent")
+    .with_grants(
+        VideoGrants(
+            room_join=True,
+            room=room_name,
+            can_publish=True,
+            can_subscribe=True,
+            can_publish_data=True,
+        )
+    )
+    .with_ttl(timedelta(hours=6))
+)
+
+video_jwt = video_token.to_jwt()
 
 # ── Patch test.html ──
 test_html = ROOT / "frontend" / "public" / "test.html"
@@ -70,7 +91,7 @@ if test_html.exists():
     content = test_html.read_text(encoding="utf-8")
     new_content = re.sub(
         r"const TOKEN = '[^']*'",
-        f"const TOKEN = '{jwt}'",
+        f"const TOKEN = '{farmer_jwt}'",
         content,
     )
     test_html.write_text(new_content, encoding="utf-8")
@@ -81,7 +102,7 @@ else:
 # ── Patch frontend/.env for React app ──
 fe_env = ROOT / "frontend" / ".env"
 fe_env.write_text(
-    f"VITE_LIVEKIT_URL={livekit_url}\nVITE_LIVEKIT_TOKEN={jwt}\n",
+    f"VITE_LIVEKIT_URL={livekit_url}\nVITE_LIVEKIT_TOKEN={farmer_jwt}\n",
     encoding="utf-8",
 )
 print(f"  Token written to frontend/.env")
@@ -89,14 +110,19 @@ print(f"  Token written to frontend/.env")
 print(f"\n=== E2E Ready ===")
 print(f"  Room:     {room_name}")
 print(f"  URL:      {livekit_url}")
-print(f"  Token:    {jwt[:50]}...")
+print(f"  Farmer:   {farmer_jwt[:50]}...")
+print(f"  Video:    {video_jwt[:50]}...")
 print(f"  React:    cd frontend && npm run dev")
 print(f"  test.html: file:///{test_html}")
 print(f"\n  Start React frontend in another terminal, then talk.")
 print(f"  Logs: {ROOT / 'logs' / 'herdflow.log'}")
 print(f"\n  Starting agent...\n")
 
-# ── Start agent ──
+# ── Set env vars for the launcher ──
+os.environ["VIDEO_AGENT_TOKEN"] = video_jwt
+os.environ["LIVEKIT_ROOM"] = room_name
+
+# ── Start launcher (spawns both voice + video) ──
 subprocess.run(
     [sys.executable, "-m", "agent.main", "dev"],
     cwd=str(ROOT),
