@@ -241,12 +241,9 @@ async def entrypoint(ctx: JobContext) -> None:
                 prebuilt_voice_config=genai_types.PrebuiltVoiceConfig(voice_name="Puck")
             )
         ),
-        # Transcription disabled — adds server-side latency to every response.
-        # Using LiveKit STT plugin for async transcription instead.
-        # Context compression with defaults (no target_tokens — causes 1008).
-        context_window_compression=genai_types.ContextWindowCompressionConfig(
-            sliding_window=genai_types.SlidingWindow(),
-        ),
+        # Transcription disabled — using LiveKit STT plugin instead (zero voice latency).
+        # Context compression disabled — causes 1008 on this model version.
+        # Sessions limited to ~15 min audio-only without it.
     )
 
     # Wait for participant
@@ -386,27 +383,29 @@ async def entrypoint(ctx: JobContext) -> None:
 
         asyncio.create_task(_feed_stt())
 
+        import json
+        from livekit.agents.stt import SpeechEventType
+
         async for stt_event in stt_stream:
-            if stt_event.alternatives:
-                text = stt_event.alternatives[0].text
-                is_final = stt_event.is_final
+            if stt_event.type == SpeechEventType.FINAL_TRANSCRIPT:
+                text = stt_event.alternatives[0].text if stt_event.alternatives else ""
                 if text.strip():
-                    logger.info("[STT] %s: %s", "FINAL" if is_final else "interim", text)
-                    if is_final:
-                        # Publish transcript to frontend via data channel
-                        import json
-                        transcript = json.dumps({
-                            "speaker": "farmer",
-                            "text": text,
-                            "timestamp": stt_event.alternatives[0].start_time or "",
-                            "final": True,
-                        })
-                        try:
-                            await ctx.room.local_participant.publish_data(
-                                transcript.encode(), topic="transcript"
-                            )
-                        except Exception:
-                            logger.debug("[STT] Failed to publish transcript")
+                    logger.info("[STT] FINAL: %s", text)
+                    transcript = json.dumps({
+                        "speaker": "farmer",
+                        "text": text,
+                        "final": True,
+                    })
+                    try:
+                        await ctx.room.local_participant.publish_data(
+                            transcript.encode(), topic="transcript"
+                        )
+                    except Exception:
+                        logger.debug("[STT] Failed to publish transcript")
+            elif stt_event.type == SpeechEventType.INTERIM_TRANSCRIPT:
+                text = stt_event.alternatives[0].text if stt_event.alternatives else ""
+                if text.strip():
+                    logger.debug("[STT] interim: %s", text)
 
     # Shared frame holder — video publisher writes, perception reads
     # This keeps bounding boxes in sync with the displayed video
