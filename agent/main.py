@@ -338,16 +338,20 @@ async def entrypoint(ctx: JobContext) -> None:
             except Exception:
                 logger.exception("[ADK] Error processing event")
 
+    # Shared frame holder — video publisher writes, perception reads
+    # This keeps bounding boxes in sync with the displayed video
+    shared_frame: dict[str, np.ndarray | None] = {"frame": None}
+
     # Start all background tasks
     asyncio.create_task(audio_input_bridge())
     asyncio.create_task(audio_output_bridge())
     asyncio.create_task(
-        perception_loop(ctx, scene_builder, video_source, video_analyst=video_analyst)
+        perception_loop(ctx, scene_builder, shared_frame, video_analyst=video_analyst)
     )
     asyncio.create_task(video_analyst.run_background_loop())
     if video_source is not None:
         asyncio.create_task(
-            video_publish_loop(settings.demo_video_path, video_src)
+            video_publish_loop(settings.demo_video_path, video_src, shared_frame)
         )
 
     # Send initial greeting request
@@ -373,24 +377,17 @@ async def entrypoint(ctx: JobContext) -> None:
 async def perception_loop(
     ctx: JobContext,
     builder: SceneGraphBuilder,
-    video_source: FileVideoSource | None = None,
+    shared_frame: dict[str, np.ndarray | None],
     video_analyst: VideoAnalyst | None = None,
 ) -> None:
-    """Run perception pipeline on video frames and feed VideoAnalyst."""
+    """Run perception on the latest video frame (shared with video publisher)."""
     frame_id = 0
-    frame_iter = video_source.frames() if video_source else None
 
     while True:
         frame_id += 1
-        if frame_iter is not None:
-            try:
-                frame = await asyncio.to_thread(next, frame_iter)
-            except StopIteration:
-                logger.warning("[PERCEPTION] Frame iterator exhausted, restarting")
-                frame_iter = video_source.frames() if video_source else None
-                frame = await asyncio.to_thread(next, frame_iter) if frame_iter else np.zeros((720, 1280, 3), dtype=np.uint8)
-        else:
-            frame = np.random.randint(0, 255, (720, 1280, 3), dtype=np.uint8)
+        frame = shared_frame.get("frame")
+        if frame is None:
+            frame = np.zeros((720, 1280, 3), dtype=np.uint8)
 
         sg = await builder.process_frame(frame, frame_id)
         if video_analyst is not None:
@@ -429,9 +426,10 @@ async def perception_loop(
 async def video_publish_loop(
     video_path: str,
     video_src: VideoSource,
+    shared_frame: dict[str, np.ndarray | None],
     target_fps: float = 10.0,
 ) -> None:
-    """Publish video frames to LiveKit at smooth FPS, independent of perception."""
+    """Publish video frames to LiveKit at smooth FPS, share latest with perception."""
     source = FileVideoSource(path=video_path, target_fps=target_fps)
     interval = 1.0 / target_fps
     logger.info("[VIDEO] Publishing at ~%.0f FPS from %s", target_fps, video_path)
@@ -446,6 +444,9 @@ async def video_publish_loop(
                 logger.warning("[VIDEO] Frame iterator exhausted, restarting")
                 frame_iter = source.frames()
                 frame = await asyncio.to_thread(next, frame_iter)
+
+            # Share with perception loop (same frame = synced bounding boxes)
+            shared_frame["frame"] = frame
 
             h, w = frame.shape[:2]
             lk_frame = VideoFrame(w, h, VideoBufferType.RGB24, frame.tobytes())
