@@ -226,6 +226,14 @@ async def entrypoint(ctx: JobContext) -> None:
         ),
         output_audio_transcription=genai_types.AudioTranscriptionConfig(),
         input_audio_transcription=genai_types.AudioTranscriptionConfig(),
+        # Faster turn-taking: reduce silence wait before Gemini responds
+        realtime_input_config=genai_types.RealtimeInputConfig(
+            automatic_activity_detection=genai_types.AutomaticActivityDetection(
+                end_of_speech_sensitivity="END_SENSITIVITY_HIGH",
+                silence_duration_ms=300,
+                start_of_speech_sensitivity="START_SENSITIVITY_HIGH",
+            ),
+        ),
         # Context compression — without this, audio tokens fill the window and session drops
         context_window_compression=genai_types.ContextWindowCompressionConfig(
             sliding_window=genai_types.SlidingWindow(
