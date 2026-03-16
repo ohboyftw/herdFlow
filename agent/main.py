@@ -68,7 +68,9 @@ from agent.adk_agents import (
     get_herd_stats,
     get_zone_history,
     search_entity_history,
+    set_video_analyst,
 )
+from agent.reasoning.video_analyst import VideoAnalyst
 from agent.alerts.rules import AlertRuleEngine
 from agent.config import settings
 from agent.models import OverlayBox, OverlayData
@@ -77,7 +79,6 @@ from agent.perception.scene_graph import SceneGraphBuilder
 from agent.perception.tracker import Tracker
 from agent.perception.video_source import FileVideoSource
 from agent.reasoning.prompts import STATIC_PROMPT
-from agent.reasoning.sampler import AdaptiveFrameSampler
 
 logger = logging.getLogger("herdflow")
 
@@ -144,12 +145,6 @@ async def entrypoint(ctx: JobContext) -> None:
         zone_config=settings.zone_config,
         alert_engine=alert_engine,
     )
-    sampler = AdaptiveFrameSampler(
-        max_fps=settings.max_fps,
-        min_interval_ms=settings.min_interval_ms,
-    )
-    scene_queue: asyncio.Queue = asyncio.Queue(maxsize=10)
-
     # Get initial scene context
     frame_iter = video_source.frames() if video_source else None
     if frame_iter is not None:
@@ -159,6 +154,13 @@ async def entrypoint(ctx: JobContext) -> None:
     initial_sg = await scene_builder.process_frame(initial_frame, frame_id=0)
     scene_json = initial_sg.model_dump_json(indent=2)
     logger.info("Initial scene: %d entities", len(initial_sg.tracked_entities))
+
+    video_analyst = VideoAnalyst(
+        background_model=settings.video_analyst_background_model,
+        on_demand_model=settings.video_analyst_on_demand_model,
+        summary_interval_s=settings.video_analyst_summary_interval_s,
+    )
+    set_video_analyst(video_analyst)
 
     # Create ADK agent system
     prompt = STATIC_PROMPT.replace("{scene_graph_json}", scene_json)
@@ -325,23 +327,11 @@ async def entrypoint(ctx: JobContext) -> None:
             except Exception:
                 logger.exception("[ADK] Error processing event")
 
-    # Context injection for scene updates
-    async def inject_context(scene_json_str: str) -> None:
-        new_prompt = STATIC_PROMPT.replace("{scene_graph_json}", scene_json_str)
-        live_queue.send_content(
-            genai_types.Content(
-                role="user",
-                parts=[genai_types.Part(text=f"[SCENE UPDATE]\n{new_prompt}")],
-            )
-        )
-
     # Start all background tasks
     asyncio.create_task(audio_input_bridge())
     asyncio.create_task(audio_output_bridge())
-    # TODO(e2e): re-enable video+context once audio-only session is stable
-    # asyncio.create_task(perception_loop(ctx, scene_builder, scene_queue, video_source, live_queue))
-    # asyncio.create_task(sampler.run(scene_queue, inject_context))
-    asyncio.create_task(perception_loop(ctx, scene_builder, scene_queue, video_source, None))  # no video to Gemini
+    asyncio.create_task(perception_loop(ctx, scene_builder, video_source, video_analyst=video_analyst))
+    asyncio.create_task(video_analyst.run_background_loop())
 
     # Send initial greeting request
     live_queue.send_content(
@@ -366,22 +356,13 @@ async def entrypoint(ctx: JobContext) -> None:
 async def perception_loop(
     ctx: JobContext,
     builder: SceneGraphBuilder,
-    scene_queue: asyncio.Queue,  # type: ignore[type-arg]
     video_source: FileVideoSource | None = None,
-    live_queue: LiveRequestQueue | None = None,
+    video_analyst: VideoAnalyst | None = None,
 ) -> None:
-    """Run perception pipeline on video frames + send frames to Gemini Live."""
-    import io
-
-    from PIL import Image
-
+    """Run perception pipeline on video frames and feed VideoAnalyst."""
     frame_id = 0
     prev_sg = None
     frame_iter = video_source.frames() if video_source else None
-
-    # Adaptive video FPS for Gemini: send every Nth frame
-    # Gemini Live processes ~25 tokens/sec for video; 1-2 FPS is optimal
-    video_send_interval = 4  # send every 4th frame (~0.5 FPS at 2s loop)
 
     while True:
         frame_id += 1
@@ -390,27 +371,9 @@ async def perception_loop(
         else:
             frame = np.random.randint(0, 255, (720, 1280, 3), dtype=np.uint8)
 
-        # Send video frame to Gemini Live (adaptive FPS)
-        if live_queue is not None and frame_id % video_send_interval == 0:
-            try:
-                img = Image.fromarray(frame)
-                buf = io.BytesIO()
-                img.save(buf, format="JPEG", quality=60)
-                live_queue.send_realtime(
-                    genai_types.Blob(
-                        mime_type="image/jpeg",
-                        data=buf.getvalue(),
-                    )
-                )
-                logger.debug(
-                    "[VIDEO] Sent frame %d to Gemini (%d bytes)",
-                    frame_id,
-                    buf.tell(),
-                )
-            except Exception:  # noqa: BLE001
-                logger.debug("Video frame send failed")
-
         sg = await builder.process_frame(frame, frame_id)
+        if video_analyst is not None:
+            video_analyst.update(frame, sg)
         delta = builder.get_delta(prev_sg, sg)
         prev_sg = sg
 
@@ -440,9 +403,6 @@ async def perception_loop(
                 )
         except Exception:  # noqa: BLE001
             logger.debug("Data channel publish failed")
-
-        with contextlib.suppress(asyncio.QueueFull):
-            scene_queue.put_nowait((sg, delta))
 
         await asyncio.sleep(2.0)
 
