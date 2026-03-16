@@ -46,7 +46,6 @@ from agent.models import (
     ZoneVisit,
 )
 
-
 # ── Tool functions (self-contained mock data, no livekit imports) ──
 
 
