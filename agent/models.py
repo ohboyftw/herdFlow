@@ -96,6 +96,15 @@ class Alert(BaseModel):
 # ── Boundary 4+6: SceneGraph ──
 
 
+class EntityAnnotation(BaseModel):
+    """Rich annotation from Gemini visual analyst, keyed by track_id."""
+    track_id: str
+    label: str = ""            # "brown cow, standing calmly"
+    behavior: str = ""         # Gemini's behavior classification
+    health_notes: str = ""     # "appears healthy" or concern
+    confidence: float = 0.0
+
+
 class DetectedZone(BaseModel):
     """Zone detected by vision analyst from the actual video frame."""
     name: str
@@ -211,12 +220,14 @@ class GeminiContext(BaseModel):
 
 
 class OverlayBox(BaseModel):
-    """Slim model for 30 FPS overlay rendering. Only fields needed for SVG."""
+    """Overlay box for SVG rendering. Includes Gemini annotation when available."""
 
     track_id: str
     bbox: list[int]
     behavior: str
     flags: list[str]
+    label: str = ""          # Gemini visual description (e.g. "brown cow, lying calmly")
+    health_notes: str = ""   # Gemini health assessment
 
 
 class OverlayData(BaseModel):

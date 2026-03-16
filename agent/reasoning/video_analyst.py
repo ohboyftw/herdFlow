@@ -28,6 +28,23 @@ _BACKGROUND_PROMPT = (
     "Scene tracking data:\n{scene_json}"
 )
 
+_ANNOTATION_PROMPT = (
+    "You are annotating a livestock camera feed. The tracking system has detected "
+    "these animals with bounding boxes:\n\n{entities_json}\n\n"
+    "For each tracked animal, provide a rich annotation based on what you SEE in the image. "
+    "Return a JSON array with one object per animal:\n"
+    '[{{"track_id": "COW-001", "label": "brown cow, standing calmly", '
+    '"behavior": "standing", "health_notes": "appears healthy", '
+    '"confidence": 0.9}}]\n\n'
+    "Guidelines:\n"
+    "- Match track_ids from the tracking data\n"
+    "- 'label' = short visual description (color, size, posture)\n"
+    "- 'behavior' = one of: standing, lying, walking, feeding, drinking, running\n"
+    "- 'health_notes' = any visible health concerns or 'appears healthy'\n"
+    "- If you can't see an animal clearly, set confidence low\n"
+    "- Return ONLY the JSON array, no other text"
+)
+
 _ON_DEMAND_PROMPT = (
     "You are a veterinary visual analyst examining a livestock camera feed. "
     "A farmer is asking: {question}\n\n"
@@ -74,6 +91,7 @@ class VideoAnalyst:
         self._client = None  # Lazy init
         self.detected_zones: list[dict] = []  # populated by detect_zones()
         self._zones_detected: bool = False
+        self.entity_annotations: dict[str, dict] = {}  # track_id → annotation
 
     def _get_client(self):
         """Lazy-init the genai client."""
@@ -147,12 +165,7 @@ class VideoAnalyst:
                     )
                 ],
             )
-            text = (response.text or "[]").strip()
-            # Strip markdown code fences if present
-            if text.startswith("```"):
-                text = text.split("\n", 1)[1] if "\n" in text else text[3:]
-            if text.endswith("```"):
-                text = text[:-3].strip()
+            text = self._strip_code_fences(response.text or "[]")
 
             self.detected_zones = json.loads(text)
             self._zones_detected = True
@@ -165,6 +178,91 @@ class VideoAnalyst:
             self._zones_detected = True
 
         return self.detected_zones
+
+    def _strip_code_fences(self, text: str) -> str:
+        """Strip markdown code fences from LLM response."""
+        text = text.strip()
+        if text.startswith("```"):
+            text = text.split("\n", 1)[1] if "\n" in text else text[3:]
+        if text.endswith("```"):
+            text = text[:-3].strip()
+        return text
+
+    async def annotate_entities(self) -> dict[str, dict]:
+        """Annotate tracked entities with rich Gemini visual descriptions.
+
+        Returns dict of track_id → {label, behavior, health_notes, confidence}.
+        Called during background loop alongside summary.
+        """
+        if self.latest_frame is None or self.latest_scene_graph is None:
+            return self.entity_annotations
+
+        entities = self.latest_scene_graph.tracked_entities
+        if not entities:
+            return self.entity_annotations
+
+        try:
+            import json
+
+            from google.genai import types
+
+            # Build entity list for the prompt
+            entity_data = [
+                {
+                    "track_id": e.track_id,
+                    "bbox": list(e.bbox),
+                    "behavior": e.behavior,
+                    "zone": e.zone,
+                    "isolation_score": e.isolation_score,
+                }
+                for e in entities
+            ]
+
+            jpeg = self._encode_frame(self.latest_frame, quality=60)
+            prompt = _ANNOTATION_PROMPT.format(
+                entities_json=json.dumps(entity_data, indent=2)
+            )
+
+            response = await asyncio.wait_for(
+                self._get_client().aio.models.generate_content(
+                    model=self.background_model,
+                    contents=[
+                        types.Content(
+                            parts=[
+                                types.Part.from_bytes(
+                                    data=jpeg, mime_type="image/jpeg"
+                                ),
+                                types.Part.from_text(text=prompt),
+                            ]
+                        )
+                    ],
+                ),
+                timeout=20.0,
+            )
+
+            text = self._strip_code_fences(response.text or "[]")
+            annotations = json.loads(text)
+
+            # Update cache keyed by track_id
+            for ann in annotations:
+                tid = ann.get("track_id", "")
+                if tid:
+                    self.entity_annotations[tid] = ann
+
+            logger.info(
+                "[ANALYST] Annotated %d entities: %s",
+                len(annotations),
+                [(a.get("track_id"), a.get("label", "")[:30]) for a in annotations],
+            )
+
+        except Exception:
+            logger.exception("[ANALYST] Entity annotation failed")
+
+        return self.entity_annotations
+
+    def get_annotation(self, track_id: str) -> dict | None:
+        """Get cached Gemini annotation for a track_id, or None."""
+        return self.entity_annotations.get(track_id)
 
     async def run_background_loop(self) -> None:
         """Background task: summarize the scene every N seconds."""
@@ -219,6 +317,9 @@ class VideoAnalyst:
                     self.latest_scene_graph
                 )
                 logger.info("[ANALYST] Background summary: %s", self.latest_summary[:100])
+
+                # Also annotate individual entities with rich descriptions
+                await self.annotate_entities()
 
             except Exception:
                 logger.exception("[ANALYST] Background summary failed, using fallback")

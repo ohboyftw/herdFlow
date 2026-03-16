@@ -400,18 +400,19 @@ async def perception_loop(
             await ctx.room.local_participant.publish_data(
                 sg.model_dump_json().encode(), topic="scene_graph"
             )
-            overlay = OverlayData(
-                frame_id=frame_id,
-                boxes=[
-                    OverlayBox(
-                        track_id=e.track_id,
-                        bbox=e.bbox,
-                        behavior=e.behavior,
-                        flags=e.flags,
-                    )
-                    for e in sg.tracked_entities
-                ],
-            )
+            # Merge RF-DETR spatial data with Gemini annotations
+            boxes = []
+            for e in sg.tracked_entities:
+                ann = video_analyst.get_annotation(e.track_id) if video_analyst else None
+                boxes.append(OverlayBox(
+                    track_id=e.track_id,
+                    bbox=e.bbox,
+                    behavior=ann.get("behavior", e.behavior) if ann else e.behavior,
+                    flags=e.flags,
+                    label=ann.get("label", "") if ann else "",
+                    health_notes=ann.get("health_notes", "") if ann else "",
+                ))
+            overlay = OverlayData(frame_id=frame_id, boxes=boxes)
             await ctx.room.local_participant.publish_data(
                 overlay.model_dump_json().encode(), topic="overlay"
             )

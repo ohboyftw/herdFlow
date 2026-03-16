@@ -54,6 +54,8 @@ export interface OverlayBox {
   bbox: number[];
   behavior: string;
   flags: string[];
+  label: string;          // Gemini visual description
+  health_notes: string;   // Gemini health assessment
 }
 
 export interface OverlayData {

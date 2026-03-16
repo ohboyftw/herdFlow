@@ -131,25 +131,56 @@ export function VideoPanel({ room }: VideoPanelProps) {
                 strokeWidth={2.5}
                 rx={3}
               />
-              {/* Track ID label above box */}
-              <rect
-                x={x1}
-                y={y1 - 20}
-                width={Math.max(box.track_id.length * 7.5, 48)}
-                height={18}
-                fill={`${color}33`}
-                rx={2}
-              />
-              <text
-                x={x1 + 4}
-                y={y1 - 6}
-                fill={color}
-                fontSize={12}
-                fontFamily="monospace"
-                fontWeight="600"
-              >
-                {box.track_id}
-              </text>
+              {/* Label: Gemini annotation or track ID fallback */}
+              {(() => {
+                const displayLabel = box.label
+                  ? `${box.track_id}: ${box.label}`
+                  : `${box.track_id} (${box.behavior})`;
+                const labelWidth = Math.max(displayLabel.length * 6.5, 60);
+                return (
+                  <>
+                    <rect
+                      x={x1}
+                      y={y1 - 20}
+                      width={labelWidth}
+                      height={18}
+                      fill={`${color}33`}
+                      rx={2}
+                    />
+                    <text
+                      x={x1 + 4}
+                      y={y1 - 6}
+                      fill={color}
+                      fontSize={11}
+                      fontFamily="monospace"
+                      fontWeight="600"
+                    >
+                      {displayLabel}
+                    </text>
+                    {box.health_notes && box.health_notes !== 'appears healthy' && (
+                      <>
+                        <rect
+                          x={x1}
+                          y={y1 - 38}
+                          width={Math.max(box.health_notes.length * 6, 40)}
+                          height={16}
+                          fill="rgba(239,68,68,0.3)"
+                          rx={2}
+                        />
+                        <text
+                          x={x1 + 3}
+                          y={y1 - 26}
+                          fill="#f87171"
+                          fontSize={10}
+                          fontFamily="monospace"
+                        >
+                          {box.health_notes}
+                        </text>
+                      </>
+                    )}
+                  </>
+                );
+              })()}
             </g>
           );
         })}

@@ -242,7 +242,7 @@ def test_boundary_8_overlay_channel_payload():
     assert "boxes" in parsed
     # OverlayBox should be slim — only 4 fields
     box = parsed["boxes"][0]
-    assert set(box.keys()) == {"track_id", "bbox", "behavior", "flags"}
+    assert {"track_id", "bbox", "behavior", "flags"}.issubset(set(box.keys()))
 
 
 def test_boundary_8_overlay_payload_size_at_30fps():

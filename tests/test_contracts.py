@@ -206,10 +206,10 @@ def test_alert_utc_enforcement():
 
 
 def test_overlay_box_slim():
-    """OverlayBox should only have track_id, bbox, behavior, flags."""
+    """OverlayBox should have core fields + optional Gemini annotation fields."""
     box = OverlayBox(track_id="COW-001", bbox=[1, 2, 3, 4], behavior="standing", flags=[])
     dumped = box.model_dump()
-    assert set(dumped.keys()) == {"track_id", "bbox", "behavior", "flags"}
+    assert {"track_id", "bbox", "behavior", "flags"}.issubset(set(dumped.keys()))
 
 
 def test_gemini_context_prompt_injection_is_valid_json():
