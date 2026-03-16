@@ -38,13 +38,14 @@ class AnalystBridge:
         data = getattr(packet, "data", b"")
         if not topic:
             return
-        logger.debug("[BRIDGE] Data received: topic=%s, %d bytes", topic, len(data))
         if topic == "analyst_summary":
             self._on_summary_received(data.decode("utf-8"))
         elif topic == "analyst_annotations":
             self._on_annotations_received(data.decode("utf-8"))
         elif topic == "analyst_response":
             self._on_response_received(data.decode("utf-8"))
+        elif topic == "scene_graph":
+            self._on_scene_graph_received(data.decode("utf-8"))
 
     def _on_summary_received(self, data: str) -> None:
         try:
@@ -66,6 +67,26 @@ class AnalystBridge:
             )
         except (json.JSONDecodeError, KeyError):
             logger.warning("[BRIDGE] Failed to parse analyst_annotations")
+
+    def _on_scene_graph_received(self, data: str) -> None:
+        """Build a fallback summary from scene_graph when no analyst_summary yet."""
+        if self._last_update_time > 0:
+            return  # already have analyst data, don't overwrite
+        try:
+            parsed = json.loads(data)
+            hs = parsed.get("herd_summary", {})
+            total = hs.get("total_visible", 0)
+            if total > 0:
+                self.latest_summary = (
+                    f"{total} animals visible: "
+                    f"{hs.get('standing', 0)} standing, "
+                    f"{hs.get('lying', 0)} lying, "
+                    f"{hs.get('walking', 0)} walking."
+                )
+                self._last_update_time = time.monotonic()
+                logger.info("[BRIDGE] Scene graph fallback: %s", self.latest_summary)
+        except (json.JSONDecodeError, KeyError):
+            pass
 
     def _on_response_received(self, data: str) -> None:
         try:
