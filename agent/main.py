@@ -63,13 +63,7 @@ from livekit.agents import AgentServer, JobContext, JobProcess
 from livekit.plugins import silero
 from livekit.rtc import AudioFrame, AudioSource, AudioStream, LocalAudioTrack
 
-from agent.adk_agents import (
-    find_by_description,
-    get_herd_stats,
-    get_zone_history,
-    search_entity_history,
-    set_video_analyst,
-)
+from agent.adk_agents import herd_tools, set_video_analyst
 from agent.reasoning.video_analyst import VideoAnalyst
 from agent.alerts.rules import AlertRuleEngine
 from agent.config import settings
@@ -164,7 +158,7 @@ async def entrypoint(ctx: JobContext) -> None:
 
     # Create ADK agent system
     prompt = STATIC_PROMPT.replace("{scene_graph_json}", scene_json)
-    herd_tools = [search_entity_history, get_herd_stats, find_by_description, get_zone_history]
+    # herd_tools imported from adk_agents (6 tools including visual analysis)
 
     # Optional: Gemini 3 Flash sub-agent for deep multi-step analysis (v2)
     sub_agents: list[Agent] = []
