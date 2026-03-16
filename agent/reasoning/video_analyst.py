@@ -108,6 +108,9 @@ class VideoAnalyst:
         )
         while True:
             await asyncio.sleep(self.summary_interval_s)
+            logger.info("[ANALYST] Background tick — frame=%s, sg=%s",
+                        self.latest_frame is not None,
+                        self.latest_scene_graph is not None)
             try:
                 if self.latest_frame is None:
                     if self.latest_scene_graph is not None:
@@ -128,19 +131,23 @@ class VideoAnalyst:
 
                 from google.genai import types
 
-                response = await asyncio.to_thread(
-                    self._get_client().models.generate_content,
-                    model=self.background_model,
-                    contents=[
-                        types.Content(
-                            parts=[
-                                types.Part.from_bytes(
-                                    data=jpeg, mime_type="image/jpeg"
-                                ),
-                                types.Part.from_text(text=prompt),
-                            ]
-                        )
-                    ],
+                logger.info("[ANALYST] Calling %s with %d byte JPEG...", self.background_model, len(jpeg))
+                response = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        self._get_client().models.generate_content,
+                        model=self.background_model,
+                        contents=[
+                            types.Content(
+                                parts=[
+                                    types.Part.from_bytes(
+                                        data=jpeg, mime_type="image/jpeg"
+                                    ),
+                                    types.Part.from_text(text=prompt),
+                                ]
+                            )
+                        ],
+                    ),
+                    timeout=25.0,
                 )
                 self.latest_summary = response.text or self._format_scene_graph(
                     self.latest_scene_graph
