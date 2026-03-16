@@ -36,8 +36,15 @@ class TestAnalystBridgeCache:
 
     def test_data_received_dispatches_by_topic(self) -> None:
         bridge = AnalystBridge()
+
+        # Simulate a LiveKit DataPacket-like object
+        class FakePacket:
+            def __init__(self, data: bytes, topic: str) -> None:
+                self.data = data
+                self.topic = topic
+
         bridge._on_data_received(
-            b'{"summary": "dispatched test"}', topic="analyst_summary"
+            FakePacket(b'{"summary": "dispatched test"}', "analyst_summary")
         )
         assert "dispatched test" in bridge.get_summary()
 

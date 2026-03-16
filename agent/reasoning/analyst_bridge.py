@@ -32,15 +32,19 @@ class AnalystBridge:
         room.on("data_received", self._on_data_received)
         logger.info("[BRIDGE] AnalystBridge started, listening for analyst channels")
 
-    def _on_data_received(
-        self, payload: bytes, participant=None, kind=None, topic: str | None = None
-    ) -> None:
+    def _on_data_received(self, packet) -> None:
+        """Handle LiveKit DataPacket — dispatch by topic."""
+        topic = getattr(packet, "topic", None)
+        data = getattr(packet, "data", b"")
+        if not topic:
+            return
+        logger.debug("[BRIDGE] Data received: topic=%s, %d bytes", topic, len(data))
         if topic == "analyst_summary":
-            self._on_summary_received(payload.decode("utf-8"))
+            self._on_summary_received(data.decode("utf-8"))
         elif topic == "analyst_annotations":
-            self._on_annotations_received(payload.decode("utf-8"))
+            self._on_annotations_received(data.decode("utf-8"))
         elif topic == "analyst_response":
-            self._on_response_received(payload.decode("utf-8"))
+            self._on_response_received(data.decode("utf-8"))
 
     def _on_summary_received(self, data: str) -> None:
         try:
