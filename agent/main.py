@@ -59,7 +59,10 @@ from google.adk.sessions import InMemorySessionService
 from google.genai import types as genai_types
 from livekit.agents import AgentServer, JobContext, JobProcess
 from livekit.plugins import silero
-from livekit.rtc import AudioFrame, AudioSource, AudioStream, LocalAudioTrack
+from livekit.rtc import (
+    AudioFrame, AudioSource, AudioStream, LocalAudioTrack,
+    LocalVideoTrack, VideoBufferType, VideoFrame, VideoSource,
+)
 
 from agent.adk_agents import herd_tools, set_video_analyst
 from agent.alerts.rules import AlertRuleEngine
@@ -213,6 +216,12 @@ async def entrypoint(ctx: JobContext) -> None:
     publication = await ctx.room.local_participant.publish_track(audio_track)
     logger.info("Published audio track: %s", publication.sid)
 
+    # LiveKit video source for publishing camera frames to the room
+    video_src = VideoSource(1280, 720)
+    video_track = LocalVideoTrack.create_video_track("camera-feed", video_src)
+    video_pub = await ctx.room.local_participant.publish_track(video_track)
+    logger.info("Published video track: %s", video_pub.sid)
+
     # ADK live request queue — the audio bridge
     live_queue = LiveRequestQueue()
 
@@ -333,7 +342,7 @@ async def entrypoint(ctx: JobContext) -> None:
     asyncio.create_task(audio_input_bridge())
     asyncio.create_task(audio_output_bridge())
     asyncio.create_task(
-        perception_loop(ctx, scene_builder, video_source, video_analyst=video_analyst)
+        perception_loop(ctx, scene_builder, video_source, video_analyst=video_analyst, video_src=video_src)
     )
     asyncio.create_task(video_analyst.run_background_loop())
 
@@ -362,8 +371,9 @@ async def perception_loop(
     builder: SceneGraphBuilder,
     video_source: FileVideoSource | None = None,
     video_analyst: VideoAnalyst | None = None,
+    video_src: VideoSource | None = None,
 ) -> None:
-    """Run perception pipeline on video frames and feed VideoAnalyst."""
+    """Run perception pipeline on video frames, feed VideoAnalyst, publish to LiveKit."""
     frame_id = 0
     frame_iter = video_source.frames() if video_source else None
 
@@ -377,6 +387,12 @@ async def perception_loop(
         sg = await builder.process_frame(frame, frame_id)
         if video_analyst is not None:
             video_analyst.update(frame, sg)
+
+        # Publish frame to LiveKit so React frontend can display video
+        if video_src is not None:
+            h, w = frame.shape[:2]
+            lk_frame = VideoFrame(w, h, VideoBufferType.RGB24, frame.tobytes())
+            video_src.capture_frame(lk_frame)
 
 
         # Publish to data channels
