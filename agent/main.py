@@ -26,9 +26,7 @@ if _env_file.exists():
         if _line and not _line.startswith("#") and "=" in _line:
             _k, _v = _line.split("=", 1)
             os.environ.setdefault(_k.strip(), _v.strip())
-import contextlib
 import logging
-
 
 # Log file — timestamped per session (avoids Windows file locking on rotation)
 _log_dir = Path(__file__).resolve().parent.parent / "logs"
@@ -64,7 +62,6 @@ from livekit.plugins import silero
 from livekit.rtc import AudioFrame, AudioSource, AudioStream, LocalAudioTrack
 
 from agent.adk_agents import herd_tools, set_video_analyst
-from agent.reasoning.video_analyst import VideoAnalyst
 from agent.alerts.rules import AlertRuleEngine
 from agent.config import settings
 from agent.models import OverlayBox, OverlayData
@@ -73,6 +70,7 @@ from agent.perception.scene_graph import SceneGraphBuilder
 from agent.perception.tracker import Tracker
 from agent.perception.video_source import FileVideoSource
 from agent.reasoning.prompts import STATIC_PROMPT
+from agent.reasoning.video_analyst import VideoAnalyst
 
 logger = logging.getLogger("herdflow")
 
@@ -142,7 +140,7 @@ async def entrypoint(ctx: JobContext) -> None:
     # Get initial scene context
     frame_iter = video_source.frames() if video_source else None
     if frame_iter is not None:
-        initial_frame = next(frame_iter)
+        initial_frame = await asyncio.to_thread(next, frame_iter)
     else:
         initial_frame = np.zeros((720, 1280, 3), dtype=np.uint8)
     initial_sg = await scene_builder.process_frame(initial_frame, frame_id=0)
@@ -254,7 +252,9 @@ async def entrypoint(ctx: JobContext) -> None:
         import livekit.rtc as rtc
 
         async def _stream_audio(audio_track: rtc.Track) -> None:
-            audio_stream = AudioStream(track=audio_track, sample_rate=INPUT_SAMPLE_RATE, num_channels=NUM_CHANNELS)
+            audio_stream = AudioStream(
+                track=audio_track, sample_rate=INPUT_SAMPLE_RATE, num_channels=NUM_CHANNELS
+            )
             logger.info("[BRIDGE] Streaming participant audio to ADK")
             async for frame_event in audio_stream:
                 frame: AudioFrame = frame_event.frame
@@ -324,7 +324,9 @@ async def entrypoint(ctx: JobContext) -> None:
     # Start all background tasks
     asyncio.create_task(audio_input_bridge())
     asyncio.create_task(audio_output_bridge())
-    asyncio.create_task(perception_loop(ctx, scene_builder, video_source, video_analyst=video_analyst))
+    asyncio.create_task(
+        perception_loop(ctx, scene_builder, video_source, video_analyst=video_analyst)
+    )
     asyncio.create_task(video_analyst.run_background_loop())
 
     # Send initial greeting request
@@ -355,21 +357,19 @@ async def perception_loop(
 ) -> None:
     """Run perception pipeline on video frames and feed VideoAnalyst."""
     frame_id = 0
-    prev_sg = None
     frame_iter = video_source.frames() if video_source else None
 
     while True:
         frame_id += 1
         if frame_iter is not None:
-            frame = next(frame_iter)
+            frame = await asyncio.to_thread(next, frame_iter)
         else:
             frame = np.random.randint(0, 255, (720, 1280, 3), dtype=np.uint8)
 
         sg = await builder.process_frame(frame, frame_id)
         if video_analyst is not None:
             video_analyst.update(frame, sg)
-        delta = builder.get_delta(prev_sg, sg)
-        prev_sg = sg
+
 
         # Publish to data channels
         try:
