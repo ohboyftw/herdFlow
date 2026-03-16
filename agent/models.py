@@ -96,6 +96,16 @@ class Alert(BaseModel):
 # ── Boundary 4+6: SceneGraph ──
 
 
+class DetectedZone(BaseModel):
+    """Zone detected by vision analyst from the actual video frame."""
+    name: str
+    x1: float  # normalized 0-1
+    y1: float
+    x2: float
+    y2: float
+    confidence: float = 1.0
+
+
 class ZoneOccupancy(BaseModel):
     occupancy: int
 

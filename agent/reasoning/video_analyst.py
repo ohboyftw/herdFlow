@@ -36,6 +36,22 @@ _ON_DEMAND_PROMPT = (
     "Scene tracking data:\n{scene_json}"
 )
 
+_ZONE_DETECTION_PROMPT = (
+    "You are analyzing a livestock camera feed to identify functional zones. "
+    "Look at this frame and identify distinct areas like:\n"
+    "- feeding area (where feed troughs/hay are visible)\n"
+    "- water trough (where water containers are visible)\n"
+    "- resting area (where animals typically lie down)\n"
+    "- open area / paddock\n"
+    "- gate / entry area\n\n"
+    "For each zone you can identify, return a JSON array with objects like:\n"
+    '[{"name": "feeding area", "x1": 0.1, "y1": 0.3, "x2": 0.4, "y2": 0.8, "confidence": 0.85}]\n\n'
+    "Coordinates are normalized 0-1 (x1,y1 = top-left, x2,y2 = bottom-right).\n"
+    "Only include zones you can actually see in the image. "
+    "If you can't identify specific zones, return an empty array: []\n"
+    "Return ONLY the JSON array, no other text."
+)
+
 
 class VideoAnalyst:
     """Async video analysis — background summaries + on-demand deep analysis."""
@@ -56,6 +72,8 @@ class VideoAnalyst:
         self._analyzing: bool = False
         self._last_analysis: str = ""
         self._client = None  # Lazy init
+        self.detected_zones: list[dict] = []  # populated by detect_zones()
+        self._zones_detected: bool = False
 
     def _get_client(self):
         """Lazy-init the genai client."""
@@ -98,6 +116,55 @@ class VideoAnalyst:
         buf = io.BytesIO()
         img.save(buf, format="JPEG", quality=quality)
         return buf.getvalue()
+
+    async def detect_zones(self) -> list[dict]:
+        """Detect functional zones from the current frame via Gemini Flash.
+
+        Runs once on the first available frame. Returns list of zone dicts
+        with name, x1, y1, x2, y2, confidence — published via data channel.
+        """
+        if self._zones_detected or self.latest_frame is None:
+            return self.detected_zones
+
+        try:
+            import json
+
+            from google.genai import types
+
+            jpeg = self._encode_frame(self.latest_frame, quality=70)
+            logger.info("[ANALYST] Detecting zones from first frame...")
+
+            response = await self._get_client().aio.models.generate_content(
+                model=self.background_model,
+                contents=[
+                    types.Content(
+                        parts=[
+                            types.Part.from_bytes(
+                                data=jpeg, mime_type="image/jpeg"
+                            ),
+                            types.Part.from_text(text=_ZONE_DETECTION_PROMPT),
+                        ]
+                    )
+                ],
+            )
+            text = (response.text or "[]").strip()
+            # Strip markdown code fences if present
+            if text.startswith("```"):
+                text = text.split("\n", 1)[1] if "\n" in text else text[3:]
+            if text.endswith("```"):
+                text = text[:-3].strip()
+
+            self.detected_zones = json.loads(text)
+            self._zones_detected = True
+            logger.info("[ANALYST] Detected %d zones: %s",
+                        len(self.detected_zones),
+                        [z["name"] for z in self.detected_zones])
+        except Exception:
+            logger.exception("[ANALYST] Zone detection failed, using empty zones")
+            self.detected_zones = []
+            self._zones_detected = True
+
+        return self.detected_zones
 
     async def run_background_loop(self) -> None:
         """Background task: summarize the scene every N seconds."""

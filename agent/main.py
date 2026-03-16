@@ -392,6 +392,14 @@ async def perception_loop(
         sg = await builder.process_frame(frame, frame_id)
         if video_analyst is not None:
             video_analyst.update(frame, sg)
+            # Detect zones once from first frame, publish to frontend
+            if not video_analyst._zones_detected:
+                zones = await video_analyst.detect_zones()
+                if zones:
+                    import json
+                    await ctx.room.local_participant.publish_data(
+                        json.dumps(zones).encode(), topic="zone_config"
+                    )
 
         # Publish to data channels
         try:

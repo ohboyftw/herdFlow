@@ -1,18 +1,12 @@
 import { useEffect, useRef } from 'react';
 import type { Room } from 'livekit-client';
 import { useOverlay } from '../hooks/useOverlay';
+import { useZones } from '../hooks/useZones';
 import type { OverlayBox } from '../types/generated';
 
 interface VideoPanelProps {
   room: Room | undefined;
 }
-
-// Normalized zone boundaries [x1, y1, x2, y2] matching agent/config.py
-const ZONE_BOUNDARIES: Array<{ name: string; x1: number; y1: number; x2: number; y2: number }> = [
-  { name: 'feed area', x1: 0.0, y1: 0.0, x2: 0.3, y2: 0.5 },
-  { name: 'water trough', x1: 0.7, y1: 0.0, x2: 1.0, y2: 0.3 },
-  { name: 'rest area', x1: 0.3, y1: 0.5, x2: 1.0, y2: 1.0 },
-];
 
 // SVG viewBox dimensions (matches agent video resolution)
 const VB_W = 1280;
@@ -26,6 +20,7 @@ function boxColor(box: OverlayBox): string {
 
 export function VideoPanel({ room }: VideoPanelProps) {
   const overlayData = useOverlay(room);
+  const zones = useZones(room);
   const videoRef = useRef<HTMLVideoElement>(null);
 
   // Attach LiveKit remote video track to the video element
@@ -92,8 +87,8 @@ export function VideoPanel({ room }: VideoPanelProps) {
         viewBox={`0 0 ${VB_W} ${VB_H}`}
         preserveAspectRatio="xMidYMid meet"
       >
-        {/* Zone boundary rectangles */}
-        {ZONE_BOUNDARIES.map((zone) => (
+        {/* Zone boundaries — detected by vision analyst */}
+        {zones.map((zone) => (
           <g key={zone.name}>
             <rect
               x={zone.x1 * VB_W}
